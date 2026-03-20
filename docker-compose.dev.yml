@@ -1,0 +1,194 @@
+services:
+  # =============================================
+  # FastAPI 业务服务（热更新：挂载源码 + uvicorn --reload）
+  # =============================================
+  fastapi:
+    build: .
+    container_name: fastapi-app-dev
+    ports:
+      - "8888:8888"
+    env_file:
+      - .env
+    environment:
+      - LANGGRAPH_API_URL=${LANGGRAPH_API_URL:-http://langgraph:8000}
+      - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
+      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+    volumes:
+      - ./src:/app/src
+      - ./static:/app/static
+    command: uvicorn services.main_app:app --host 0.0.0.0 --port 8888 --reload --reload-dir /app/src
+    networks:
+      - app-network
+
+  # =============================================
+  # LangGraph Platform（热更新：langgraph dev 模式）
+  # 本地开发直接用 langgraph dev，不走 Docker
+  # 如果仍需容器化，使用 watch 模式
+  # =============================================
+  langgraph:
+    image: langgraph-agent:latest
+    container_name: langgraph-server-dev
+    ports:
+      - "8123:8000"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - REDIS_URI=redis://redis:6379
+      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
+      - MILVUS_DIM=${MILVUS_DIM:-1024}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ok')"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./src/agent
+          target: /deps/fastapi-agent/src/agent
+    networks:
+      - app-network
+
+  # =============================================
+  # PostgreSQL
+  # =============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: langgraph-postgres-dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-langgraph}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # =============================================
+  # Redis
+  # =============================================
+  redis:
+    image: redis:7-alpine
+    container_name: langgraph-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # =============================================
+  # MySQL
+  # =============================================
+  mysql:
+    image: mysql:8.0
+    container_name: app-mysql-dev
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-app_db}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysqldata_dev:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # =============================================
+  # Milvus（standalone + etcd + minio）
+  # =============================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    container_name: milvus-etcd-dev
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcddata_dev:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: milvus-minio-dev
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - miniodata_dev:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - app-network
+
+  milvus:
+    image: milvusdb/milvus:v2.4.17
+    container_name: milvus-standalone-dev
+    command: milvus run standalone
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvusdata_dev:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - app-network
+
+volumes:
+  pgdata_dev:
+  redisdata_dev:
+  mysqldata_dev:
+  etcddata_dev:
+  miniodata_dev:
+  milvusdata_dev:
+
+networks:
+  app-network:
+    driver: bridge
