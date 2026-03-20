@@ -17,9 +17,8 @@ def create_app():
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     app = FastAPI(
-        docs_url=False,
-        redoc_url=False,
-        lifespan=lifespan
+        title="FastAPI Agent",
+        lifespan=lifespan,
     )
     # 挂载静态文件
     app.mount("/static", StaticFiles(directory="static"), name="static")
