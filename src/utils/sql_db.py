@@ -46,7 +46,7 @@ async def get_sql_session() -> AsyncSession:
     async with async_session() as session:
         yield session
 
-SqlSession = Annotated[AsyncSession, Depends(get_sql_session)]
+AsyncSqlSessionDeps = Annotated[AsyncSession, Depends(get_sql_session)]
 
 # 检查数据库连接是否正常
 async def check_db_connection():

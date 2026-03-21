@@ -1,14 +1,22 @@
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import SQLModel
 from starlette.middleware.cors import CORSMiddleware
+
+from utils.response import register_exception_handlers
+from utils.sql_db import async_engine
+
 
 def create_app():
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # 启动阶段
-        print("lifespan：启动阶段")
+        # 启动阶段：创建表（开发环境；生产建议用 Alembic）
+        async with async_engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        print("lifespan：启动阶段，数据库表已就绪")
         yield
     # 配置日志
     logging.basicConfig(
@@ -20,6 +28,7 @@ def create_app():
         title="FastAPI Agent",
         lifespan=lifespan,
     )
+    register_exception_handlers(app)
     # 挂载静态文件
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
