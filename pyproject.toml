@@ -40,6 +40,7 @@ build-backend = "setuptools.build_meta"
 packages = [
     "langgraph.templates.agent",
     "agent",
+    "ingestion",
     "schemas",
     "services",
     "shared",
@@ -50,6 +51,7 @@ packages = [
 [tool.setuptools.package-dir]
 "langgraph.templates.agent" = "src/agent"
 "agent" = "src/agent"
+"ingestion" = "src/ingestion"
 "schemas" = "src/schemas"
 "services" = "src/services"
 "shared" = "src/shared"
@@ -84,6 +86,7 @@ lint.ignore = [
 "src/schemas/**/*.py" = ["D415"]
 "src/services/**/*.py" = ["D415"]
 "src/utils/**/*.py" = ["D415"]
+"src/ingestion/**/*.py" = ["D415"]
 "configs/**/*.py" = ["D415"]
 [tool.ruff.lint.pydocstyle]
 convention = "google"
