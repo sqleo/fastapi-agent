@@ -17,6 +17,9 @@ services:
       - ./src:/app/src
       - ./static:/app/static
     command: uvicorn services.main_app:app --host 0.0.0.0 --port 8888 --reload --reload-dir /app/src
+    depends_on:
+      mysql:
+        condition: service_healthy
     networks:
       - app-network
 

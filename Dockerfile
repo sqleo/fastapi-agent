@@ -7,6 +7,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
+COPY configs/ ./configs/
 COPY src/ ./src/
 
 RUN pip install --no-cache-dir -e .
