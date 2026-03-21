@@ -6,8 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel
 from starlette.middleware.cors import CORSMiddleware
 
-import models  # noqa: F401 — 注册 ORM 表到 metadata
-from middlewares.require_login_middleware import RequireLoginMiddleware
+from services.middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.response import register_exception_handlers
 from utils.sql_db import async_engine
 

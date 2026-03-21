@@ -1,0 +1,30 @@
+"""资料库相关业务逻辑."""
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models.KnowledgeModel import KnowledgeModel
+
+
+async def create_knowledge_base(
+    session: AsyncSession,
+    *,
+    owner_user_id: int,
+    name: str,
+    description: str | None = None,
+    thumbnail_key: str | None = None,
+    audit_label: str | None = None,
+) -> KnowledgeModel:
+    """为当前用户新建一条资料库记录并提交。"""
+    kb = KnowledgeModel(
+        owner_user_id=owner_user_id,
+        name=name,
+        description=description,
+        thumbnail_key=thumbnail_key,
+        status=1,
+        create_by=audit_label,
+        update_by=audit_label,
+    )
+    session.add(kb)
+    await session.commit()
+    await session.refresh(kb)
+    return kb

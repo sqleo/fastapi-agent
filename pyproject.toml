@@ -39,26 +39,22 @@ build-backend = "setuptools.build_meta"
 packages = [
     "langgraph.templates.agent",
     "agent",
-    "controllers",
     "schemas",
     "services",
     "shared",
     "prompts",
     "utils",
     "models",
-    "middlewares",
 ]
 [tool.setuptools.package-dir]
 "langgraph.templates.agent" = "src/agent"
 "agent" = "src/agent"
-"controllers" = "src/controllers"
 "schemas" = "src/schemas"
 "services" = "src/services"
 "shared" = "src/shared"
 "prompts" = "src/prompts"
 "utils" = "src/utils"
 "models" = "src/models"
-"middlewares" = "src/middlewares"
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 

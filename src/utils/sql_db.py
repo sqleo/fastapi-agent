@@ -1,6 +1,7 @@
 """异步 MySQL 连接（SQLAlchemy + aiomysql）。"""
 
 import os
+from collections.abc import AsyncGenerator
 from typing import Annotated
 from urllib.parse import quote_plus
 
@@ -49,9 +50,14 @@ async_engine = create_async_engine(
 async_session = sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def get_sql_session() -> AsyncSession:
+async def get_sql_session() -> AsyncGenerator[AsyncSession, None]:
+    """每个请求一个 Session；任意未捕获异常时回滚，避免脏事务占用连接。"""
     async with async_session() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
 
 
 AsyncSqlSessionDeps = Annotated[AsyncSession, Depends(get_sql_session)]

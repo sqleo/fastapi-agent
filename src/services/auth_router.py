@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, status
 
-from controllers.auth_controller import login_user, register_user
+from services.controllers.auth_controller import login_user, register_user
 from schemas.auth_schema import (
     LoginSuccessData,
     UserLoginRequest,
