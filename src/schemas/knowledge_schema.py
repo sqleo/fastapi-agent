@@ -34,3 +34,19 @@ class KnowledgePublicResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class KbFileUploadResponse(BaseModel):
+    """资料库文件上传结果（仅落盘，解析另接接口）。"""
+
+    id: int
+    knowledge_base_id: int
+    original_name: str
+    storage_key: str
+    mime_type: str | None
+    size_bytes: int
+    parse_status: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

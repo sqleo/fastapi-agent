@@ -6,6 +6,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.KnowledgeModel import KnowledgeModel
 
 
+async def get_knowledge_base_owned(
+    session: AsyncSession,
+    *,
+    kb_id: int,
+    owner_user_id: int,
+) -> KnowledgeModel | None:
+    """按 id + 归属用户查询一条资料库（不区分 status）。"""
+    stmt = select(KnowledgeModel).where(
+        KnowledgeModel.id == kb_id,
+        KnowledgeModel.owner_user_id == owner_user_id,
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def list_knowledge_bases_by_owner(
     session: AsyncSession,
     *,
