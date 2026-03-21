@@ -46,6 +46,7 @@ packages = [
     "prompts",
     "utils",
     "models",
+    "middlewares",
 ]
 [tool.setuptools.package-dir]
 "langgraph.templates.agent" = "src/agent"
@@ -57,6 +58,7 @@ packages = [
 "prompts" = "src/prompts"
 "utils" = "src/utils"
 "models" = "src/models"
+"middlewares" = "src/middlewares"
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 

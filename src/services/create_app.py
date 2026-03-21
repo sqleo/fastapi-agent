@@ -6,6 +6,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel
 from starlette.middleware.cors import CORSMiddleware
 
+import models  # noqa: F401 — 注册 ORM 表到 metadata
+from middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.response import register_exception_handlers
 from utils.sql_db import async_engine
 
@@ -32,6 +34,8 @@ def create_app():
     # 挂载静态文件
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
+    # 未登录拦截（先于 CORS 注册，使 CORS 仍包在最外层，便于浏览器读到 401 的跨域头）
+    app.add_middleware(RequireLoginMiddleware)
     # 添加CORS中间件
     app.add_middleware(
         CORSMiddleware,
