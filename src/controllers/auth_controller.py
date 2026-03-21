@@ -61,11 +61,16 @@ async def register_user(
     try:
         await session.commit()
         await session.refresh(user)
-    except IntegrityError:
+    except IntegrityError as e:
         await session.rollback()
+        raw = str(getattr(e, "orig", e))
+        if "Duplicate entry" in raw or "1062" in raw:
+            detail = "用户名或邮箱已存在"
+        else:
+            detail = f"写入用户失败: {raw}"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="用户名或邮箱已存在",
-        ) from None
+            detail=detail,
+        ) from e
 
     return user

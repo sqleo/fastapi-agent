@@ -1,18 +1,25 @@
+from datetime import date, datetime, timedelta, timezone
+from typing import Optional
+
 from pydantic import model_validator
 from sqlmodel import Field, SQLModel
-from datetime import date, datetime, timedelta, timezone
 
 # 定义北京时区（UTC+8）
 beijing_timezone = timezone(timedelta(hours=8))
 
-current_time = datetime.now(beijing_timezone)
+
+def beijing_now() -> datetime:
+    """default_factory 必须是「无参可调用」，不能传 datetime 实例。"""
+    return datetime.now(beijing_timezone)
+
 
 class BasicModel(SQLModel):
     id: int = Field(default=None, primary_key=True, description="唯一标识ID")
-    created_at: datetime = Field(default_factory=current_time, description="创建时间")
-    updated_at: datetime = Field(default_factory=current_time, description="更新时间")
-    create_by: str = Field(default=None, description="创建者")
-    update_by: str = Field(default=None, description="更新者")
+    created_at: datetime = Field(default_factory=beijing_now, description="创建时间")
+    updated_at: datetime = Field(default_factory=beijing_now, description="更新时间")
+    # 必须 Optional[str]：纯 str 会在 MySQL 里建成 NOT NULL，插入 NULL 会报 1048
+    create_by: Optional[str] = Field(default=None, description="创建者")
+    update_by: Optional[str] = Field(default=None, description="更新者")
 
     class Config:
         json_encoders = {
