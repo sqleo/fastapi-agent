@@ -1,8 +1,24 @@
 """资料库相关业务逻辑."""
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.KnowledgeModel import KnowledgeModel
+
+
+async def list_knowledge_bases_by_owner(
+    session: AsyncSession,
+    *,
+    owner_user_id: int,
+) -> list[KnowledgeModel]:
+    """按归属用户列出知识库（不包含禁用项），按更新时间倒序。"""
+    stmt = (
+        select(KnowledgeModel)
+        .where(KnowledgeModel.owner_user_id == owner_user_id, KnowledgeModel.status == 1)
+        .order_by(KnowledgeModel.updated_at.desc())
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
 
 
 async def create_knowledge_base(

@@ -2,13 +2,33 @@
 
 from fastapi import APIRouter, status
 
-from services.controllers.knowledge_controller import create_knowledge_base
+from services.controllers.knowledge_controller import (
+    create_knowledge_base,
+    list_knowledge_bases_by_owner,
+)
 from schemas.knowledge_schema import KnowledgeCreateRequest, KnowledgePublicResponse
 from utils.auth_deps import CurrentUserDeps
 from utils.response import SuccessResponse, ok
 from utils.sql_db import AsyncSqlSessionDeps
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
+
+
+@router.get(
+    "/bases",
+    response_model=SuccessResponse[list[KnowledgePublicResponse]],
+    summary="我的资料库列表",
+)
+async def list_knowledge_bases_route(
+    session: AsyncSqlSessionDeps,
+    current_user: CurrentUserDeps,
+):
+    """返回当前登录用户名下的全部资料库。"""
+    rows = await list_knowledge_bases_by_owner(
+        session, owner_user_id=current_user.id
+    )
+    data = [KnowledgePublicResponse.model_validate(k) for k in rows]
+    return ok(data, message="success")
 
 
 @router.post(
