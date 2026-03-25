@@ -130,6 +130,7 @@ docker compose up -d
 # 首次：构建 LangGraph 镜像（只需一次，Agent 代码改了再重新构建）
 langgraph build -t langgraph-agent
 
+docker compose -f docker-compose.dev.yml build fastapi
 # 每天开发：一条命令启动全部，改代码自动热更新
 docker compose -f docker-compose.dev.yml up -d
 ```

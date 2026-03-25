@@ -14,9 +14,11 @@ def create_llm(platform_code: str, temperature: float = 0.0, max_tokens: int = 1
     if platform_code not in ai_config:
         raise ValueError(f"Invalid platform code: {platform_code}")
     platform_config = ai_config[platform_code]
+    key = (platform_config["api_key"] or "").strip()
+    print(platform_config)
     return ChatOpenAI(
         model=platform_config["model"],
-        api_key=platform_config["api_key"],
+        api_key=key if key else None,
         base_url=platform_config["base_url"],
         temperature=temperature,
         max_tokens=max_tokens,

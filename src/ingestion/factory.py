@@ -11,13 +11,12 @@ from ingestion.detection import (
 )
 from ingestion.exceptions import UnsupportedDocumentError
 from ingestion.parsers.base import DocumentToMarkdownParser
-from ingestion.parsers.pdf_ppt_image_parser import PDF_PPT_ImageParser
 from ingestion.parsers.plaintext_parser import MarkdownFileParser, PlainTextParser
-from ingestion.parsers.rich_document_parser import PlaceholderRichDocumentParser
+from ingestion.parsers.rich_document_parser import UnstructuredRichDocumentParser
 
 
 def default_allowed_extensions() -> frozenset[str]:
-    """默认：纯文本 + Markdown + 已归类的富文档后缀（富文档解析需自行实现）。"""
+    """默认：纯文本 + Markdown + 富文档后缀（富文档由 MinerU / langchain-mineru 解析）。"""
     return (
         PLAIN_TEXT_EXTENSIONS
         | MARKDOWN_EXTENSIONS
@@ -62,7 +61,6 @@ class ParserFactory:
             raise ValueError(f"路径不是文件: {p}")
 
         ext = p.suffix.lower()
-        print(ext)
         if ext not in self._allowed:
             raise UnsupportedDocumentError(
                 f"扩展名 {ext!r} 未在工厂允许列表中；已配置: {sorted(self._allowed)}"
@@ -79,9 +77,7 @@ class ParserFactory:
         if kind is DocumentKind.MARKDOWN:
             return MarkdownFileParser()
         if kind is DocumentKind.RICH_DOCUMENT:
-            return PlaceholderRichDocumentParser()
-        if kind is DocumentKind.PDF_PPT_IMAGE:
-            return PDF_PPT_ImageParser()
-            
+            return UnstructuredRichDocumentParser()
+
         raise UnsupportedDocumentError(f"未实现的文档类别: {kind}")
 

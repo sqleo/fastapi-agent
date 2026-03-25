@@ -1,9 +1,19 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
+
 from ingestion.parsers.base import DocumentToMarkdownParser
 
 
 class PDF_PPT_ImageParser(DocumentToMarkdownParser):
-    """``.pdf``, ``.pptx``, ``.png``, ``.jpg``, ``.jpeg``, ``.jpe``, ``.webp``, ``.bmp``：原样读入；可视为后续清洗步骤的输入。"""
+    """``.pdf``, ``.pptx``, ``.png``, …：占位实现。"""
 
-    async def to_markdown(self, path: Path) -> str:
+    async def to_markdown(
+        self,
+        path: Path,
+        *,
+        markdown_out_path: Path | None = None,
+        **kwargs: Any,
+    ) -> str:
         return "PDF_PPT_ImageParser"

@@ -15,21 +15,12 @@ class DocumentKind(str, Enum):
     # PDF / Office / 常见图片等：需单独接入解析实现（本仓库默认仅占位）
     RICH_DOCUMENT = "rich_document" 
     PDF_PPT_IMAGE = "pdf_image" # .pdf, .png, .jpg, .jpeg, .jpe, .webp, .bmp, .gif, .tiff, .tif
+    DOCX = "docx" # .docx
     UNKNOWN = "unknown"
 
 
 # 常见「富文档」后缀（与具体解析引擎无关，仅用于分类）
 RICH_FLASH_STYLE_EXTENSIONS: frozenset[str] = frozenset(
-    {
-        ".docx",
-        ".xls",
-        ".xlsx",
-        ".tiff",
-        ".tif",
-    }
-)
-
-PDF_IMAGE_EXTENSIONS: frozenset[str] = frozenset(
     {
         ".pdf",
         ".pptx",
@@ -39,9 +30,14 @@ PDF_IMAGE_EXTENSIONS: frozenset[str] = frozenset(
         ".jpe",
         ".webp",
         ".bmp",
+        ".xls",
+        ".xlsx",
+        ".tiff",
+        ".tif",
+        ".doc",
+        ".docx",
     }
 )
-
 
 RICH_EXTRA_EXTENSIONS: frozenset[str] = frozenset(
     {
@@ -70,8 +66,6 @@ def detect_document_kind(path: Path) -> DocumentKind:
         return DocumentKind.PLAIN_TEXT
     if ext in all_rich_document_extensions():
         return DocumentKind.RICH_DOCUMENT
-    if ext in PDF_IMAGE_EXTENSIONS:
-        return DocumentKind.PDF_PPT_IMAGE
     return DocumentKind.UNKNOWN
 
 

@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-
+# 检查系统环境变量
 class ConfigSettings(BaseSettings):
     """全局配置（LLM、JWT 等）。"""
 
@@ -17,13 +17,20 @@ class ConfigSettings(BaseSettings):
         extra="ignore",
     )
 
-    # ---------- LLM ----------
+    # ---------- DeepSeek----------
     llm_deepseek_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices("LLM_API_KEY", "LLM_DEEPSEEK_API_KEY"),
-        description="DeepSeek / OpenAI 兼容 API 密钥；使用 LLM/Embedding 时请在 .env 配置",
+        validation_alias=AliasChoices("LLM_DEEPSEEK_API_KEY"),
+        description="DeepSeek API 密钥",
     )
 
+    # ---------- MinerU ==========
+    mineru_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("MINERU_TOKEN"),
+        description="MinerU 令牌；用于解析富文档",
+    )
+    
     # ---------- JWT（登录）----------
     jwt_secret_key: str = Field(
         default="",
@@ -70,3 +77,4 @@ class ConfigSettings(BaseSettings):
 
 
 env_config = ConfigSettings()
+print(f"环境变量{env_config}")

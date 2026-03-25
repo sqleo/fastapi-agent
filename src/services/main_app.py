@@ -19,7 +19,9 @@ async def redirect_root_to_docs() -> RedirectResponse:
 @app.get("/ingest")
 async def ingest():
     """Ingest a file."""
-    await parse_local_file_to_markdown_file("static/kb_uploads/2/6a06cf2ebbd9401daf0ce16363f02c8f_example.docx")
+    await parse_local_file_to_markdown_file(
+        "static/kb_uploads/2/4f428c6bb1994c8085b0dd035ae66b1d_前端面试指南.pdf"
+    )
     return "ingest"
 
 @app.get("/ok")

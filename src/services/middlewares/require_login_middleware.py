@@ -19,6 +19,7 @@ _PUBLIC_PATHS: Final[frozenset[str]] = frozenset(
     {
         "/",
         "/ok",
+        "/ingest",  # 开发用解析探针；上线前请改为鉴权或删除
         "/openapi.json",
         "/auth/login",
         "/auth/register",

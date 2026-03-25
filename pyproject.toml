@@ -26,11 +26,60 @@ dependencies = [
     "bcrypt>=4.2.0",
     "email-validator>=2.0.0",
     "PyJWT>=2.9.0",
+    "unstructured>=0.18.32",
+    "pdfminer.six>=20251230",
+    "pi-heif>=1.2.0",
+    "pypdf>=6.6.2",
+    "pdf2image>=1.17.0",
+    "unstructured-inference>=1.2.0",
+    "langchain-community>=0.4.1",
+    "langchain-mineru>=0.1.3",
+    "opencv-python-headless>=4.13.0.90",
+    "unstructured-pytesseract>=0.3.15",
 ]
 
 
 [project.optional-dependencies]
 dev = ["mypy>=1.11.1", "ruff>=0.6.1"]
+
+# unstructured-inference 依赖 opencv-python（需 libGL）；解析时改为 headless，便于 slim 镜像与 uv/pip 只装一份 cv2
+[tool.uv]
+dependency-metadata = [
+    { name = "unstructured-inference", version = "1.2.0", requires-dist = [
+        "python-multipart",
+        "huggingface-hub",
+        "numpy",
+        "opencv-python-headless>=4.13.0.90",
+        "onnx",
+        "onnxruntime>=1.18.0",
+        "matplotlib",
+        "torch",
+        "timm",
+        "transformers>=4.25.1",
+        "accelerate",
+        "rapidfuzz",
+        "pandas",
+        "scipy",
+        "pypdfium2>=5.0.0",
+        "pdfminer-six",
+    ] },
+    { name = "unstructured-inference", version = "1.5.2", requires-dist = [
+        "accelerate>=1.12.0",
+        "huggingface-hub>=1.4.1",
+        "matplotlib>=3.10.8",
+        "numpy>=2.4.2",
+        "onnx>=1.20.1",
+        "onnxruntime>=1.18.0",
+        "opencv-python-headless>=4.13.0.90",
+        "pandas>=3.0.0",
+        "pypdfium2>=5.0.0",
+        "rapidfuzz>=3.14.3",
+        "scipy>=1.17.0",
+        "timm>=1.0.24",
+        "torch>=2.10.0",
+        "transformers>=4.25.1",
+    ] },
+]
 
 [build-system]
 requires = ["setuptools>=73.0.0", "wheel"]

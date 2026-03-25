@@ -6,16 +6,15 @@ during its reasoning process.
 
 from __future__ import annotations
 
-import os
 from typing import Annotated
 
 from langchain_core.messages import AnyMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
 
 from agent.tools import milvus_search
+from utils.llm_init import create_llm
 
 
 class State(TypedDict):
@@ -26,11 +25,8 @@ class State(TypedDict):
 
 tools = [milvus_search]
 
-llm = ChatOpenAI(
-    model=os.getenv("LLM_MODEL", "deepseek-chat"),
-    api_key=os.getenv("LLM_API_KEY"),
-    base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
-)
+_DEFAULT_LLM_PLATFORM = "deepseek"
+llm = create_llm(_DEFAULT_LLM_PLATFORM)
 
 graph = (
     StateGraph(State)
