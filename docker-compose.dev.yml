@@ -170,7 +170,9 @@ services:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
     ports:
+      # 本机 Attu / pymilvus / 应用均连 localhost:19530（gRPC）
       - "19530:19530"
+      # Milvus 管理 HTTP（健康检查等）
       - "9091:9091"
     volumes:
       - milvusdata_dev:/var/lib/milvus

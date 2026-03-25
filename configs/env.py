@@ -7,7 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-# 检查系统环境变量
 class ConfigSettings(BaseSettings):
     """全局配置（LLM、JWT 等）。"""
 
@@ -22,6 +21,12 @@ class ConfigSettings(BaseSettings):
         default="",
         validation_alias=AliasChoices("LLM_DEEPSEEK_API_KEY"),
         description="DeepSeek API 密钥",
+    )
+    # ---------- Qwen-embedding-v4----------
+    llm_qwen_embedding_v4_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLM_QWEN_EMBEDDING_V4_API_KEY"),
+        description="Qwen-embedding-v4 API 密钥",
     )
 
     # ---------- MinerU ==========
@@ -77,4 +82,3 @@ class ConfigSettings(BaseSettings):
 
 
 env_config = ConfigSettings()
-print(f"环境变量{env_config}")

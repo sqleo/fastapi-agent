@@ -11,7 +11,7 @@ from models.BasicModel import BasicModel
 class KbExtractedImageModel(BasicModel, table=True):
     """解析产物中的图片：存储路径相对项目根（POSIX），关联 ``kb_file``。"""
 
-    __tablename__ = "kb_extracted_image"
+    __tablename__ = "kb_extracted_image" 
     __table_args__: ClassVar[tuple[Any, ...]] = (
         Index("ix_kb_extracted_image_kb_file", "kb_file_id"),
     )
