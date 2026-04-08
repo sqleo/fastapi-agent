@@ -1,6 +1,11 @@
-from sqlmodel import Field
+from typing import TYPE_CHECKING
+
+from sqlmodel import Field, Relationship
 
 from models.BasicModel import BasicModel
+
+if TYPE_CHECKING:
+    from models.LlmVendorModel import LlmVendorModel
 
 
 class UserModel(BasicModel, table=True):
@@ -12,3 +17,8 @@ class UserModel(BasicModel, table=True):
     email: str = Field(max_length=255, description="邮箱", index=True)
     password: str = Field(max_length=255, description="密码哈希")
     status: int = Field(default=1, description="状态：1 正常，0 禁用")
+
+    # 关联到该用户的 LLM 厂商（多租户隔离）
+    llm_vendors: list["LlmVendorModel"] = Relationship(
+        back_populates="owner_user",
+    )

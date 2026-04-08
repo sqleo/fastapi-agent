@@ -163,3 +163,7 @@ cython_debug/
 .langgraph_api/
 /static
 /llm_model
+
+# 应用运行时本地日志
+logs/
+.idea/

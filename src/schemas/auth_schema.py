@@ -36,10 +36,3 @@ class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=64, description="用户名")
     email: EmailStr = Field(..., description="邮箱")
     password: str = Field(..., min_length=6, max_length=128, description="密码")
-
-
-class IngestRequest(BaseModel):
-    """解析请求体。"""
-    file_path: str = Field(..., description="文件路径", example="static/kb_uploads/2/4f428c6bb1994c8085b0dd035ae66b1d_前端面试指南.pdf")
-    kb_file_id: int = Field(..., description="资料库文件 id")
-    knowledge_base_id: int = Field(..., description="资料库 id")

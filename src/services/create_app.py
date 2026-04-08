@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,6 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 import models  # noqa: F401 — 注册 SQLModel 表元数据
 
 from services.middlewares.require_login_middleware import RequireLoginMiddleware
+from utils.logging_setup import configure_logging
 from utils.response import register_exception_handlers
 from utils.sql_db import async_engine
 
@@ -16,17 +16,14 @@ from utils.sql_db import async_engine
 def create_app():
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # 须在 uvicorn 完成 logging 配置之后再挂文件 Handler，否则会写不进 logs/app.log
+        configure_logging()
         # 启动阶段：创建表（开发环境；生产建议用 Alembic）
         async with async_engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
         print("lifespan：启动阶段，数据库表已就绪")
         yield
-    # 配置日志
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+
     app = FastAPI(
         title="FastAPI Agent",
         lifespan=lifespan,

@@ -29,13 +29,6 @@ class ConfigSettings(BaseSettings):
         description="Qwen-embedding-v4 API 密钥",
     )
 
-    # ---------- MinerU ==========
-    mineru_token: str = Field(
-        default="",
-        validation_alias=AliasChoices("MINERU_TOKEN"),
-        description="MinerU 令牌；用于解析富文档",
-    )
-    
     # ---------- JWT（登录）----------
     jwt_secret_key: str = Field(
         default="",
@@ -66,18 +59,6 @@ class ConfigSettings(BaseSettings):
         default=0,
         validation_alias=AliasChoices("JWT_LEEWAY_SECONDS"),
         description="校验 exp/nbf 时允许的时钟偏差（秒）",
-    )
-
-    # ---------- 资料库文件（本地上传）----------
-    kb_upload_rel_dir: str = Field(
-        default="static/kb_uploads",
-        validation_alias=AliasChoices("KB_UPLOAD_REL_DIR"),
-        description="相对项目根目录的上传根路径，位于 static 下便于 /static 访问",
-    )
-    kb_upload_max_bytes: int = Field(
-        default=104_857_600,
-        validation_alias=AliasChoices("KB_UPLOAD_MAX_BYTES"),
-        description="单文件最大字节数，默认 100MB",
     )
 
 

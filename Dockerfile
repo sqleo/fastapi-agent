@@ -21,24 +21,14 @@ ENV PYTHONPATH=/app/src
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        gcc libpq-dev default-libmysqlclient-dev poppler-utils \
-        libglib2.0-0 libgomp1 \
-        tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim && \
+        gcc libpq-dev default-libmysqlclient-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
 COPY configs/ ./configs/
 COPY src/ ./src/
 
-# unstructured-inference 在 PyPI 上依赖 opencv-python；与 headless 并存时卸载 GUI 版易把 cv2 弄丢，故先卸再只装 headless
-RUN pip install --no-cache-dir -e . && \
-    pip uninstall -y opencv-python opencv-python-headless 2>/dev/null || true && \
-    pip install --no-cache-dir "opencv-python-headless>=4.13.0.90" && \
-    python -c "import cv2; print('cv2', cv2.__version__)" && \
-    python -c "import unstructured_pytesseract; import shutil; assert shutil.which('tesseract'), 'tesseract binary missing'"
-
-# YOLOX 布局模型（与 rich_document_parser 默认路径 /app/llm_model/mms/yolo_x_layout 一致）
-COPY llm_model/mms/yolo_x_layout/ /app/llm_model/mms/yolo_x_layout/
+RUN pip install --no-cache-dir -e .
 
 RUN mkdir -p static
 

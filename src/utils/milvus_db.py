@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from typing import Any, Optional
 
 from dotenv import load_dotenv
 from langchain_milvus import Milvus
+from pymilvus import MilvusException
 
 from utils.embedding_init import create_embeddings
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 MILVUS_URI = os.getenv("MILVUS_URI", "http://localhost:19530")
 MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "MILVUS_COLLECTION")
@@ -104,6 +108,40 @@ def get_vector_store(
         return vs
 
 
+def delete_vectors_by_kb_file_id(
+    kb_file_id: int,
+    *,
+    collection_name: str | None = None,
+) -> bool:
+    """
+    删除集合中 ``metadata.kb_file_id`` 等于该文件 id 的全部向量，避免同一文件重复入库。
+
+    与 ``chunk_and_embed`` 写入时使用的字段一致（字符串形式的 id）。
+    """
+    kid = str(int(kb_file_id))
+    vs = get_vector_store(collection_name)
+    expr = f'kb_file_id == "{kid}"'
+    try:
+        ok = vs.delete(expr=expr)
+        if ok:
+            logger.info("[milvus] 已删除 kb_file 旧向量 kb_file_id=%s", kb_file_id)
+        else:
+            logger.warning(
+                "[milvus] delete(expr) 返回 False kb_file_id=%s expr=%s",
+                kb_file_id,
+                expr,
+            )
+        return bool(ok)
+    except MilvusException as e:
+        # 集合为空、字段尚未创建或表达式不兼容旧 schema 时可能失败；记录后继续由调用方 insert
+        logger.warning(
+            "[milvus] 按 kb_file_id 删除跳过（将直接写入新向量）kb_file_id=%s err=%s",
+            kb_file_id,
+            e,
+        )
+        return False
+
+
 class MilvusService:
     """兼容旧调用：`MilvusService().get_vector_store()` / `add_documents` / `similarity_search`。"""
 
@@ -129,6 +167,13 @@ class MilvusService:
 
     def add_documents(self, docs) -> None:
         get_vector_store().add_documents(docs)
+
+    def delete_vectors_by_kb_file_id(
+        self, kb_file_id: int, collection_name: str | None = None
+    ) -> bool:
+        return delete_vectors_by_kb_file_id(
+            kb_file_id, collection_name=collection_name
+        )
 
     def similarity_search(self, query: str, k: int = 5):
         return get_vector_store().similarity_search(query, k=k)
