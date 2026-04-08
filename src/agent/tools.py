@@ -6,6 +6,7 @@ import logging
 
 from langchain_core.tools import tool
 
+from agent.langmem_setup import LANGMEM_TOOLS
 from utils.milvus_db import MilvusService
 
 logger = logging.getLogger("agent.tools")
@@ -13,11 +14,10 @@ logger = logging.getLogger("agent.tools")
 
 @tool
 def milvus_search(query: str, top_k: int = 5) -> str:
-    """Search the vector database for documents relevant to the query.
-
+    """搜索向量数据库中的文档，返回与查询相关的文档。
     Args:
-        query: The search query text.
-        top_k: Number of results to return, defaults to 5.
+        query: 搜索查询文本。
+        top_k: 返回结果数量，默认为 5。
     """
     q_preview = (query or "")[:200]
     logger.info("milvus_search start top_k=%s query_preview=%r", top_k, q_preview)
@@ -39,7 +39,7 @@ def milvus_search(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(results)
 
 
-ALL_AGENT_TOOLS = [milvus_search]
+ALL_AGENT_TOOLS = [milvus_search, *LANGMEM_TOOLS]
 
 
 def tool_catalog() -> list[dict[str, str | None]]:

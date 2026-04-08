@@ -1,6 +1,6 @@
 {
   "$schema": "https://langgra.ph/schema.json",
-  "dependencies": ["."],
+  "dependencies": [".", "langmem>=0.0.30"],
   "checkpointer": {
     "type": "postgres",
     "connection_string": "$POSTGRES_URI"
@@ -9,6 +9,5 @@
     "agent": "./src/agent/graph.py:graph"
   },
   "env": ".env",
-  "image_distro": "wolfi",
-  "pip_config_file": "docker/pip.cn.conf"
+  "image_distro": "wolfi"
 }

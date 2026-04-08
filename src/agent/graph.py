@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import pathlib
 import time
 from typing import Any
 
@@ -16,6 +17,8 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.config import get_config
 
+from agent.context_window_middleware import short_term_message_window
+from agent.langmem_setup import get_langgraph_store
 from agent.tools import ALL_AGENT_TOOLS
 from utils.langgraph_sse_error_patch import apply_vendor_api_sse_patch
 from utils.llm_init import create_llm
@@ -26,6 +29,28 @@ apply_vendor_api_sse_patch()
 logger = logging.getLogger("agent.graph")
 
 tools = ALL_AGENT_TOOLS
+
+# 与 SSE 侧隐去工具正文互补；优先读仓库根目录 AGENT.md，便于与 Cursor AGENTS.md 类工作流一致。
+_AGENT_SYSTEM_PROMPT_DEFAULT = (
+    "记忆类工具（manage_memory、search_memory）的返回仅供你内部使用。"
+    "回复用户时不要复述、引用或翻译其中的英文句式（例如含 memory 与 UUID 的行）；"
+    "用自然中文说明即可（如已记下、已更新偏好），勿向用户暴露技术细节与 id。"
+)
+
+
+def _load_agent_system_prompt() -> str:
+    root = pathlib.Path(__file__).resolve().parents[2]
+    path = root / "AGENT.md"
+    if path.is_file():
+        text = path.read_text(encoding="utf-8").strip()
+        if text:
+            logger.info("agent system prompt: 从 %s 加载", path)
+            return text
+    logger.info("agent system prompt: AGENT.md 没有找到，使用默认提示词")
+    return _AGENT_SYSTEM_PROMPT_DEFAULT
+
+
+_AGENT_SYSTEM_PROMPT = _load_agent_system_prompt()
 
 
 def _tool_entry_name(entry: Any) -> str | None:
@@ -130,8 +155,11 @@ async def _inject_llm_from_global_settings(request, handler):
 graph = create_agent(
     _placeholder_model,
     tools=tools,
+    system_prompt=_AGENT_SYSTEM_PROMPT,
+    store=get_langgraph_store(),
     middleware=[
         _filter_tools_by_enabled_config,
+        short_term_message_window,
         _inject_llm_from_global_settings,
         _block_disabled_tool_execution,
     ],

@@ -1,13 +1,9 @@
 # New LangGraph Project
 
-[![CI](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/unit-tests.yml)
-[![Integration Tests](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/integration-tests.yml)
+[CI](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/unit-tests.yml)
+[Integration Tests](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/integration-tests.yml)
 
 This template demonstrates a simple application implemented using [LangGraph](https://github.com/langchain-ai/langgraph), designed for showing how to get started with [LangGraph Server](https://langchain-ai.github.io/langgraph/concepts/langgraph_server/#langgraph-server) and using [LangGraph Studio](https://langchain-ai.github.io/langgraph/concepts/langgraph_studio/), a visual debugging IDE.
-
-<div align="center">
-  <img src="./static/studio_ui.png" alt="Graph view in LangGraph studio UI" width="75%" />
-</div>
 
 The core logic defined in `src/agent/graph.py`, showcases an single-step application that responds with a fixed string and the configuration provided.
 
@@ -22,7 +18,7 @@ cd path/to/your/app
 pip install -e . "langgraph-cli[inmem]"
 ```
 
-2. (Optional) Customize the code and project as needed. Create a `.env` file if you need to use secrets.
+1. (Optional) Customize the code and project as needed. Create a `.env` file if you need to use secrets.
 
 ```bash
 cp .env.example .env
@@ -35,7 +31,7 @@ If you want to enable LangSmith tracing, add your LangSmith API key to the `.env
 LANGSMITH_API_KEY=lsv2...
 ```
 
-3. Start the LangGraph Server.
+1. Start the LangGraph Server.
 
 ```shell
 langgraph dev
@@ -46,7 +42,6 @@ For more information on getting started with LangGraph Server, [see here](https:
 ## How to customize
 
 1. **Define runtime context**: Modify the `Context` class in the `graph.py` file to expose the arguments you want to configure per assistant. For example, in a chatbot application you may want to define a dynamic system prompt or LLM to use. For more information on runtime context in LangGraph, [see here](https://langchain-ai.github.io/langgraph/agents/context/?h=context#static-runtime-context).
-
 2. **Extend the graph**: The core logic of the application is defined in [graph.py](./src/agent/graph.py). You can modify this file to add new nodes, edges, or change the flow of information.
 
 ## Development
@@ -58,7 +53,6 @@ Follow-up requests extend the same thread. You can create an entirely new thread
 For more advanced features and examples, refer to the [LangGraph documentation](https://langchain-ai.github.io/langgraph/). These resources can help you adapt this template for your specific use case and build more sophisticated conversational agents.
 
 LangGraph Studio also integrates with [LangSmith](https://smith.langchain.com/) for more in-depth tracing and collaboration with teammates, allowing you to analyze and optimize your chatbot's performance.
-
 
 ## Architecture
 
@@ -98,14 +92,16 @@ LangGraph Studio also integrates with [LangSmith](https://smith.langchain.com/) 
   LangGraph Agent ──────▶ PostgreSQL checkpoint 持久化
 ```
 
-| 服务 | 端口 | 说明 |
-|---|---|---|
-| FastAPI | 8888 | 业务 API 入口 |
-| LangGraph Platform | 8123 | Agent API（也可直接访问） |
-| PostgreSQL | 5432 | 始终启动，LangGraph 必需 |
-| MySQL | 3306 | profile: mysql，可选 / 可用第三方 |
-| Milvus | 19530 | profile: milvus，可选 / 可用第三方 |
-| MinIO (Milvus S3) | 9000/9001 | Milvus 内部依赖，随 milvus profile 启动 |
+
+| 服务                 | 端口        | 说明                              |
+| ------------------ | --------- | ------------------------------- |
+| FastAPI            | 8888      | 业务 API 入口                       |
+| LangGraph Platform | 8123      | Agent API（也可直接访问）               |
+| PostgreSQL         | 5432      | 始终启动，LangGraph 必需               |
+| MySQL              | 3306      | profile: mysql，可选 / 可用第三方       |
+| Milvus             | 19530     | profile: milvus，可选 / 可用第三方      |
+| MinIO (Milvus S3)  | 9000/9001 | Milvus 内部依赖，随 milvus profile 启动 |
+
 
 ## Quick Start
 
@@ -126,6 +122,7 @@ docker compose --profile mysql up -d
 docker compose up -d
 
 ```
+
 ```bash
 # 首次：构建 LangGraph 镜像（只需一次，Agent 代码改了再重新构建）
 langgraph build -t langgraph-agent
@@ -135,5 +132,3 @@ docker compose -f docker-compose.dev.yml build fastapi
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-
-<!-- eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiaWF0IjoxNzc0MDcxOTY1LCJleHAiOjE3NzQxNTgzNjUsImp0aSI6Ijg4YWMxNGExLTUzNzUtNDM1OC1iYTA3LWQ1YTdhOTA1MTllMCIsInVzZXJuYW1lIjoiXHU1MjFkXHU0ZTVkIn0.VdSJFjsZyT6tWGjN_-XZgfWSRwqTRJfvg8yDmEdMw2I -->

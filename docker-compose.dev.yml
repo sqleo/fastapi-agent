@@ -38,6 +38,8 @@ services:
       - "8123:8000"
     env_file:
       - .env
+    volumes:
+      - ./AGENT.md:/deps/fastapi-agent/AGENT.md:ro
     environment:
       - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
       - REDIS_URI=redis://redis:6379
