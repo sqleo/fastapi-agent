@@ -16,7 +16,7 @@ from langmem import create_manage_memory_tool, create_search_memory_tool
 
 from utils.milvus_db import MilvusService
 
-logger = logging.getLogger("agent.langmem_setup")
+logger = logging.getLogger("agent.memory.langmem")
 
 LANGMEM_ENABLED = os.getenv("LANGMEM_ENABLED", "1").lower() in ("1", "true", "yes")
 
@@ -123,7 +123,11 @@ def _build_memory_store() -> InMemoryStore:
 
 
 def get_langgraph_store() -> BaseStore | None:
-    """返回 LangGraph Store；未启用 LangMem 时返回 None."""
+    """返回 LangGraph Store；未启用 LangMem 时返回 None.
+
+    注意：LangGraph Platform 会自动管理 persistence。
+    这里返回 None 或 InMemoryStore 以避免 "custom store" 警告。
+    """
     global _store
     if not LANGMEM_ENABLED:
         return None
@@ -135,22 +139,12 @@ def get_langgraph_store() -> BaseStore | None:
         _store = _build_memory_store()
         logger.info("LangMem 使用 InMemoryStore")
         return _store
-    if mode == "postgres":
-        pg = _build_postgres_store()
-        if pg is None:
-            raise ValueError(
-                "LANGMEM_STORE=postgres 但未设置 LANGMEM_POSTGRES_URI / POSTGRES_URI，或依赖导入失败"
-            )
-        _store = pg
-        return _store
-    # auto
-    pg = _build_postgres_store()
-    if pg is not None:
-        _store = pg
-        return _store
-    _store = _build_memory_store()
-    logger.info("LangMem 无 Postgres URI，使用 InMemoryStore")
-    return _store
+
+    # 对于 LangGraph API / Platform，推荐不提供自定义 PostgresStore
+    # 平台会根据 POSTGRES_URI 自动管理 persistence
+    logger.info("Using platform-managed persistence - returning None for custom store")
+    return None
+
 
 
 def build_langmem_tools():

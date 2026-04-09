@@ -6,7 +6,7 @@ import logging
 
 from langchain_core.tools import tool
 
-from agent.langmem_setup import LANGMEM_TOOLS
+from agent.memory.langmem import LANGMEM_TOOLS
 from utils.milvus_db import MilvusService
 
 logger = logging.getLogger("agent.tools")
@@ -24,7 +24,7 @@ def milvus_search(query: str, top_k: int = 5) -> str:
     docs = MilvusService().get_vector_store().similarity_search(query, k=top_k)
     logger.info("milvus_search end hits=%s", len(docs))
     if not docs:
-        return "No relevant documents found."
+        return "没有找到相关文档。"
     results = []
     for i, doc in enumerate(docs, 1):
         source = doc.metadata.get("source_parsed_md") or doc.metadata.get(
