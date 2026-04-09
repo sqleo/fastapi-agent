@@ -7,10 +7,10 @@ import logging
 from langchain_core.tools import tool
 
 from agent.memory.langmem import LANGMEM_TOOLS
+from agent.tools.decorators import hidden_from_client
 from utils.milvus_db import MilvusService
 
 logger = logging.getLogger("agent.tools")
-
 
 @tool
 def milvus_search(query: str, top_k: int = 5) -> str:
@@ -39,11 +39,18 @@ def milvus_search(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(results)
 
 
-ALL_AGENT_TOOLS = [milvus_search, *LANGMEM_TOOLS]
+# LangMem 工具由第三方工厂创建，统一标记为不对前端暴露
+ALL_AGENT_TOOLS = [
+    milvus_search,
+    *[hidden_from_client(t) for t in LANGMEM_TOOLS],
+]
 
 
 def tool_catalog() -> list[dict[str, str | None]]:
-    """供 API 展示：名称与说明，便于前端做开关."""
+    """全部注册工具的名称与说明（含不对前端暴露的基础工具）。
+
+    面向前端的列表请使用 ``agent.tools.registry.tool_catalog_for_client``。
+    """
     rows: list[dict[str, str | None]] = []
     for t in ALL_AGENT_TOOLS:
         rows.append(

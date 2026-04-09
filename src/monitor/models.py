@@ -38,11 +38,13 @@ class RequestLog(MonitorBase):
     """每次 LLM 调用记录一行。
 
     覆盖指标:
-        - Token 使用量:  input_tokens / output_tokens / total_tokens（自动计算列）
+        - Token 使用量:  input_tokens / input_tokens_cache_hit / input_tokens_cache_miss /
+                          output_tokens / total_tokens（自动计算列）
         - 响应延迟:      latency_ms（总延迟）/ ttft_ms（首 Token 延迟）
         - 调用成功率:     status = 'success' | 'error' | 'timeout' | 'rate_limited'
         - 错误率与类型:   error_type + error_category 自动归类
-        - 缓存命中率:     is_cache_hit / cache_tokens_saved（检测 provider 级 prompt cache）
+        - 缓存命中率:     is_cache_hit / input_tokens_cache_hit / input_tokens_cache_miss
+                          （cache_tokens_saved 与 input_tokens_cache_hit 同义，保留兼容）
     """
 
     __tablename__ = "request_log"
@@ -64,6 +66,9 @@ class RequestLog(MonitorBase):
     model: Mapped[str | None] = mapped_column(String(100))
 
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    # 与图表「输入（命中缓存）/ 输入（未命中缓存）」一致；未命中 = input_tokens - 命中（由写入侧保证）
+    input_tokens_cache_hit: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    input_tokens_cache_miss: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     total_tokens: Mapped[int | None] = mapped_column(
         Integer, Computed("input_tokens + output_tokens", persisted=True),

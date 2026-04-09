@@ -15,17 +15,26 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.tools import tool_catalog
+from agent.tools import hidden_from_client_tool_names, merge_enabled_with_hidden, tool_catalog_for_client
 from agent.control.interrupt import request_pause, resume_from_pause
 from agent.control.time_travel import get_formatted_history, travel
 from utils.auth_deps import CurrentUserDeps
 from utils.response import SuccessResponse, ok
+from utils.sql_db import AsyncSqlSessionDeps
+from services.controllers.agent_tool_settings_controller import (
+    get_saved_enabled_tools,
+    upsert_enabled_tools,
+)
 from schemas.chat_schema import DeleteChatResponse
 from schemas.chat_control_schema import (
     HistoryResponse,
+    PauseRequest,
     PauseResponse,
+    ResumeRequest,
     ResumeResponse,
+    TimeTravelRequest,
     TimeTravelResponse,
 )
 
@@ -52,7 +61,10 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
     enabled_tools: list[str] | None = Field(
         default=None,
-        description="允许模型使用的工具 name 列表（与 GET /agent/tools 一致）；不传=全部可用，[]=全部禁用",
+        description=(
+            "本次请求允许的工具 name 列表；不传则使用 PUT /agent/tools/settings 保存的偏好；"
+            "未保存过偏好时 **默认全部工具开启**；传 [] 表示本次全部禁用"
+        ),
     )
 
 
@@ -61,6 +73,19 @@ class AgentToolItem(BaseModel):
 
     name: str
     description: str | None = None
+    enabled: bool = Field(
+        True,
+        description="该工具是否启用；**无保存记录时全部为 true（默认全开）**",
+    )
+
+
+class ToolSettingsUpdate(BaseModel):
+    """保存工具开关：与聊天 configurable.enabled_tools 语义一致。"""
+
+    enabled_tools: list[str] | None = Field(
+        None,
+        description="仅允许列出的工具；null=删除偏好、**恢复默认（全部开启）**；[]=全部禁用",
+    )
 
 
 def _agent_run_config(
@@ -89,28 +114,80 @@ def _sse_json(obj: dict[str, Any]) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
+async def _resolve_enabled_tools_for_chat(
+    req_tools: list[str] | None,
+    sql: AsyncSession,
+    user_id: int,
+) -> list[str] | None:
+    """请求体显式传了 enabled_tools 则优先；否则读用户保存的偏好。
+
+    与 ``AGENT_TOOLS_HIDDEN_FROM_CLIENT`` 中的基础工具合并，避免被误关。
+    """
+    if req_tools is not None:
+        return merge_enabled_with_hidden(req_tools)
+    saved = await get_saved_enabled_tools(sql, user_id)
+    return merge_enabled_with_hidden(saved)
+
+
+def _catalog_with_enabled(saved: list[str] | None) -> list[dict]:
+    """合并对前端暴露的 tool_catalog 与保存的开关状态。"""
+    catalog = tool_catalog_for_client()
+    if saved is None:
+        return [{**t, "enabled": True} for t in catalog]
+    allowed = set(saved)
+    return [{**t, "enabled": (t["name"] in allowed)} for t in catalog]
+
+
 @router.get("/tools", response_model=SuccessResponse[list[AgentToolItem]])
 async def list_agent_tools(
     current_user: CurrentUserDeps,
+    sql: AsyncSqlSessionDeps,
 ):
-    """列出当前 Agent 注册的工具，供前端展示开关（需登录）。"""
-    rows = [AgentToolItem(**x) for x in tool_catalog()]
-    _ = current_user.id
+    """列出当前 Agent 注册的工具及每个工具的启用状态（需登录）。
+
+    未保存过偏好时，所有工具的 ``enabled`` 均为 ``true``（默认全开）。
+    """
+    saved = await get_saved_enabled_tools(sql, current_user.id)
+    rows = [AgentToolItem(**x) for x in _catalog_with_enabled(saved)]
     return ok(rows, message="查询成功")
+
+
+@router.put("/tools/settings", response_model=SuccessResponse[None])
+async def update_agent_tool_settings(
+    body: ToolSettingsUpdate,
+    current_user: CurrentUserDeps,
+    sql: AsyncSqlSessionDeps,
+):
+    """保存用户级工具开关；之后聊天请求若不传 ``enabled_tools`` 则使用此处配置。
+
+    传 ``enabled_tools: null`` 可删除保存，恢复 **默认全部开启**。
+    """
+    valid_names = {t["name"] for t in tool_catalog_for_client()}
+    if body.enabled_tools is not None:
+        unknown = set(body.enabled_tools) - valid_names
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"未知工具名: {sorted(unknown)}",
+            )
+    await upsert_enabled_tools(sql, current_user.id, body.enabled_tools)
+    return ok(None, message="工具开关已保存")
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
     current_user: CurrentUserDeps,
+    sql: AsyncSqlSessionDeps,
 ):
     """向 Agent 发一条消息并等待完整回复（非流式）。"""
+    enabled = await _resolve_enabled_tools_for_chat(req.enabled_tools, sql, current_user.id)
     logger.info(
         "graph_chat start user_id=%s thread_id=%s msg_chars=%s tools=%s",
         current_user.id,
         req.thread_id or "-",
         len(req.message or ""),
-        "all" if req.enabled_tools is None else len(req.enabled_tools),
+        "all" if enabled is None else len(enabled),
     )
     client = get_client(url=LANGGRAPH_API_URL)
 
@@ -122,7 +199,7 @@ async def chat(
     tid = thread["thread_id"]
     config = _agent_run_config(
         user_id=current_user.id,
-        enabled_tools=req.enabled_tools,
+        enabled_tools=enabled,
         thread_id=tid,
     )
 
@@ -148,8 +225,16 @@ async def chat(
 
     return ChatResponse(reply=reply, thread_id=tid)
 
+def _internal_tool_names() -> frozenset[str]:
+    """与 GET /agent/tools 一致：不向用户展示其调用过程的工具（如 LangMem）。"""
+    return hidden_from_client_tool_names()
+
+
 async def _transform_stream_part(ev: str, raw_data: Any):
-    """清洗 LangGraph 原始流数据，只产出前端需要的精简包。"""
+    """清洗 LangGraph 原始流数据，只产出前端需要的精简包。
+
+    对 ``hidden_from_client`` 标记的基础工具：不推送「调用工具」与 reference，避免暴露内部记忆流程。
+    """
     if ev != "messages" or not isinstance(raw_data, list) or not raw_data:
         return
 
@@ -160,6 +245,7 @@ async def _transform_stream_part(ev: str, raw_data: Any):
     msg_type = msg.get("type", "")
     content = msg.get("content", "")
     tool_calls = msg.get("tool_calls")
+    internal = _internal_tool_names()
 
     reasoning = (msg.get("additional_kwargs") or {}).get("reasoning_content")
     if reasoning:
@@ -168,13 +254,16 @@ async def _transform_stream_part(ev: str, raw_data: Any):
     if msg_type in ("AIMessageChunk", "ai", "AIMessage"):
         if tool_calls:
             t_names = [tc.get("name") for tc in tool_calls if tc.get("name")]
-            if t_names:
-                yield {"type": "tool", "content": f"调用工具: {', '.join(t_names)}..."}
+            visible = [n for n in t_names if n not in internal]
+            if visible:
+                yield {"type": "tool", "content": f"调用工具: {', '.join(visible)}..."}
         elif content:
             yield {"type": "text", "content": content}
 
     elif msg_type in ("tool", "ToolMessage", "ToolMessageChunk"):
-        tool_name = msg.get("name", "")
+        tool_name = msg.get("name", "") or ""
+        if tool_name in internal:
+            return
         if content:
             yield {"type": "reference", "tool": tool_name, "content": content}
  
@@ -182,17 +271,19 @@ async def _transform_stream_part(ev: str, raw_data: Any):
 async def chat_stream(
     req: ChatRequest,
     current_user: CurrentUserDeps,
+    sql: AsyncSqlSessionDeps,
 ):
     """SSE：每条 ``data:`` 后为 JSON。
     订阅哪些模式由环境变量 ``LANGGRAPH_AGENT_STREAM_MODES`` 控制（逗号分隔），默认
     ``messages-tuple,values,updates,debug``。
     """
+    enabled = await _resolve_enabled_tools_for_chat(req.enabled_tools, sql, current_user.id)
     logger.info(
         "graph_stream start user_id=%s thread_id=%s msg_chars=%s tools=%s",
         current_user.id,
         req.thread_id or "-",
         len(req.message or ""),
-        "all" if req.enabled_tools is None else len(req.enabled_tools),
+        "all" if enabled is None else len(enabled),
     )
     client = get_client(url=LANGGRAPH_API_URL)
 
@@ -204,7 +295,7 @@ async def chat_stream(
     tid = thread["thread_id"]
     config = _agent_run_config(
         user_id=current_user.id,
-        enabled_tools=req.enabled_tools,
+        enabled_tools=enabled,
         thread_id=tid,
     )
 

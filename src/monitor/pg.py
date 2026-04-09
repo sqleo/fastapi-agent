@@ -42,6 +42,19 @@ async def _ensure_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS llm_monitor"))
         await conn.run_sync(MonitorBase.metadata.create_all)
+        # create_all 不会给已有表加列，显式补列（兼容旧库）
+        await conn.execute(
+            text(
+                "ALTER TABLE llm_monitor.request_log "
+                "ADD COLUMN IF NOT EXISTS input_tokens_cache_hit INTEGER NOT NULL DEFAULT 0"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE llm_monitor.request_log "
+                "ADD COLUMN IF NOT EXISTS input_tokens_cache_miss INTEGER NOT NULL DEFAULT 0"
+            )
+        )
     _schema_ready = True
     logger.info("llm_monitor schema 已就绪（ORM create_all）")
 

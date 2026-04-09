@@ -17,10 +17,8 @@ from langgraph.config import get_config
 from langgraph.store.base import BaseStore
 
 # 中间件（已按功能拆分到 middleware/ 和 injection/）
-from agent.middleware import (
-    filter_tools_by_enabled_config,
-    block_disabled_tool_execution,
-)
+from agent.middleware import filter_tools_by_enabled_config
+from agent.middleware.tool_policy import strip_tool_calls_not_in_enabled_list
 from agent.injection import inject_llm_from_global_settings
 from agent.memory.context_window import short_term_message_window
 from agent.control.interrupt import token_level_pause_middleware
@@ -37,8 +35,9 @@ tools = ALL_AGENT_TOOLS
 # 系统提示词
 _AGENT_SYSTEM_PROMPT_DEFAULT = (
     "记忆类工具（manage_memory、search_memory）的返回仅供你内部使用。"
-    "回复用户时不要复述、引用或翻译其中的英文句式（例如含 memory 与 UUID 的行）；"
-    "用自然中文说明即可（如已记下、已更新偏好），勿向用户暴露技术细节与 id。"
+    "回复中**禁止**提及「记忆库」「搜索记忆」「内部记忆」「没有相关记忆记录」等表述；"
+    "无命中时直接按常识作答，不要解释检索过程。"
+    "也不要复述工具返回的英文与 UUID；需要时仅用自然中文（如已记下偏好）。"
 )
 
 
@@ -71,11 +70,11 @@ graph = create_agent(
     system_prompt=_AGENT_SYSTEM_PROMPT,
     store=get_langgraph_store(),           # LangGraph API 会忽略自定义 store，使用平台自带
     middleware=[
+        strip_tool_calls_not_in_enabled_list,
         filter_tools_by_enabled_config,
         short_term_message_window,
         token_level_pause_middleware,
         inject_llm_from_global_settings,
-        block_disabled_tool_execution,
     ],
     name="Agent",
 )

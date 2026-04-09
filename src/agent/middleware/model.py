@@ -43,15 +43,6 @@ def _tool_entry_name(entry: Any) -> str | None:
     return None
 
 
-def _tool_entry_name(entry):
-    """提取工具名称的辅助函数。"""
-    if hasattr(entry, "name"):
-        return getattr(entry, "name", None)
-    if isinstance(entry, dict):
-        return entry.get("name")
-    return None
-
-
 @wrap_model_call
 async def inject_llm_from_global_settings(request, handler):
     """根据 configurable.user_id 从数据库加载对应 LLM 并注入。

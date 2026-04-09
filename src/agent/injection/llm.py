@@ -51,6 +51,11 @@ def _extract_usage(resp) -> dict:
             details = usage.get("input_token_details") or {}
             if isinstance(details, dict):
                 info["cache_read_tokens"] = details.get("cache_read", 0) or 0
+            cr_top = usage.get("cache_read_input_tokens")
+            if cr_top:
+                info["cache_read_tokens"] = max(
+                    int(info["cache_read_tokens"]), int(cr_top)
+                )
         else:
             info["input_tokens"] = getattr(usage, "input_tokens", 0) or 0
             info["output_tokens"] = getattr(usage, "output_tokens", 0) or 0
@@ -75,6 +80,10 @@ def _extract_usage(resp) -> dict:
                 or token_usage.get("output_tokens", 0)
                 or 0
             )
+            # OpenAI prompt caching 等：cached 计入命中
+            cr = token_usage.get("cached_tokens") or token_usage.get("cache_read_input_tokens")
+            if cr:
+                info["cache_read_tokens"] = max(info["cache_read_tokens"], int(cr))
 
     if not info["input_tokens"] and not info["output_tokens"]:
         logger.debug(
@@ -216,6 +225,8 @@ async def inject_llm_from_global_settings(request, handler):
     input_tokens = usage["input_tokens"]
     output_tokens = usage["output_tokens"]
     cache_read = usage["cache_read_tokens"]
+    input_cache_hit = int(cache_read)
+    input_cache_miss = max(0, int(input_tokens) - input_cache_hit)
 
     msg = _unwrap_message(resp)
     tool_calls_n = 0
@@ -226,9 +237,9 @@ async def inject_llm_from_global_settings(request, handler):
 
     logger.info(
         "model_step end user_id=%s model=%s ms=%.0f "
-        "in_tokens=%s out_tokens=%s cache_read=%s tool_calls=%s",
+        "in_tokens=%s out_tokens=%s in_hit=%s in_miss=%s tool_calls=%s",
         user_id, model_label, elapsed_ms,
-        input_tokens, output_tokens, cache_read, tool_calls_n,
+        input_tokens, output_tokens, input_cache_hit, input_cache_miss, tool_calls_n,
     )
 
     from monitor.models import RequestLog
@@ -238,11 +249,13 @@ async def inject_llm_from_global_settings(request, handler):
         provider=provider_label,
         model=model_label,
         input_tokens=input_tokens,
+        input_tokens_cache_hit=input_cache_hit,
+        input_tokens_cache_miss=input_cache_miss,
         output_tokens=output_tokens,
         latency_ms=int(elapsed_ms),
         status="success",
-        is_cache_hit=cache_read > 0,
-        cache_tokens_saved=cache_read,
+        is_cache_hit=input_cache_hit > 0,
+        cache_tokens_saved=input_cache_hit,
         user_id=user_id,
         extra={"tool_calls": tool_calls_n},
     )

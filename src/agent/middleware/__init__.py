@@ -8,11 +8,13 @@ from langchain.agents.middleware.types import wrap_model_call, wrap_tool_call
 
 from .model import filter_tools_by_enabled_config, inject_llm_from_global_settings
 from .tool import block_disabled_tool_execution
+from .tool_policy import strip_tool_calls_not_in_enabled_list
 
 __all__ = [
     "wrap_model_call",
     "wrap_tool_call",
     "filter_tools_by_enabled_config",
     "inject_llm_from_global_settings",
+    "strip_tool_calls_not_in_enabled_list",
     "block_disabled_tool_execution",
 ]
