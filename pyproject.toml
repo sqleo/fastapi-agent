@@ -51,6 +51,7 @@ packages = [
     "prompts",
     "utils",
     "models",
+    "monitor",
 ]
 [tool.setuptools.package-dir]
 "langgraph.templates.agent" = "src/agent"
@@ -61,6 +62,7 @@ packages = [
 "prompts" = "src/prompts"
 "utils" = "src/utils"
 "models" = "src/models"
+"monitor" = "src/monitor"
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 
@@ -94,6 +96,7 @@ lint.ignore = [
 "src/agent/langmem_setup.py" = ["D415", "D103"]
 "src/agent/context_window_middleware.py" = ["D415"]
 "configs/**/*.py" = ["D415"]
+"src/monitor/**/*.py" = ["D415"]
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 

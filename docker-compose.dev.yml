@@ -13,6 +13,7 @@ services:
       - LANGGRAPH_API_URL=${LANGGRAPH_API_URL:-http://langgraph:8000}
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
       # Docker Desktop（Mac/Win）下绑定挂载常无法触发 inotify，reload 不生效时靠轮询检测改动
       - WATCHFILES_FORCE_POLLING=true
     volumes:
@@ -22,6 +23,8 @@ services:
     command: uvicorn services.main_app:app --host 0.0.0.0 --port 8888 --reload --reload-dir /app/src --reload-dir /app/configs
     depends_on:
       mysql:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - app-network
@@ -57,6 +60,9 @@ services:
         - action: sync+restart
           path: ./src/agent
           target: /deps/fastapi-agent/src/agent
+        - action: sync+restart
+          path: ./src/monitor
+          target: /deps/fastapi-agent/src/monitor
     networks:
       - app-network
 

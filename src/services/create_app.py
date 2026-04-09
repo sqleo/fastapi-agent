@@ -13,7 +13,8 @@ import models  # noqa: F401 — 注册 SQLModel 表元数据
 from services.middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.logging_setup import configure_logging
 from utils.response import register_exception_handlers
-from utils.sql_db import async_engine
+from utils.sql_db import async_engine, check_db_connection
+from monitor.pg import init_monitor_pool, close_monitor_pool
 
 logger = logging.getLogger("services.request")
 
@@ -21,13 +22,29 @@ logger = logging.getLogger("services.request")
 def create_app():
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # 须在 uvicorn 完成 logging 配置之后再挂文件 Handler，否则会写不进 logs/app.log
         configure_logging()
-        # 启动阶段：创建表（开发环境；生产建议用 Alembic）
+
+        # ---- 启动：检测数据库连接 ----
+        await check_db_connection()
+
+        # 创建业务表（开发环境；生产建议用 Alembic）
         async with async_engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
-        print("lifespan：启动阶段，数据库表已就绪")
+        logger.info("MySQL 业务表已就绪")
+
+        # 初始化 LLM 监控库（PostgreSQL，会自动建 schema + 表）
+        try:
+            await init_monitor_pool()
+            logger.info("PostgreSQL 监控表已就绪")
+        except Exception:
+            logger.warning("LLM 监控库初始化失败，监控功能不可用", exc_info=True)
+
         yield
+
+        # ---- 关闭：释放连接池 ----
+        await close_monitor_pool()
+        await async_engine.dispose()
+        logger.info("数据库连接已关闭")
 
     app = FastAPI(
         title="FastAPI Agent",
