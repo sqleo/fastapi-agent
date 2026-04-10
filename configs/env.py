@@ -29,6 +29,13 @@ class ConfigSettings(BaseSettings):
         description="Qwen-embedding-v4 API 密钥",
     )
 
+    # ---------- Redis（入库队列等）----------
+    redis_uri: str = Field(
+        default="",
+        validation_alias=AliasChoices("REDIS_URI"),
+        description="Redis 连接串，如 redis://localhost:6379/0；索引入队依赖",
+    )
+
     # ---------- JWT（登录）----------
     jwt_secret_key: str = Field(
         default="",

@@ -1,24 +1,22 @@
-"""Embedding 工厂：百炼兼容 ``/v1/embeddings`` 与 OpenAI 一致，使用 ``input`` + 可选 ``dimensions``。"""
+"""OpenAI 兼容 ``/v1/embeddings`` HTTP 客户端（httpx）。
+
+参数仅来自数据库解析的 ``EmbeddingConfig``（``llm_global_setting`` + ``llm_vendor``），不读嵌入相关环境变量。
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 import httpx
-from langchain_core.embeddings import Embeddings
-from langchain_openai import OpenAIEmbeddings
 
-from configs.ai_config import ai_config
-from configs.env import env_config
+from shared.embedding.config import EmbeddingConfig
 
 
-class DashScopeCompatibleEmbeddings(Embeddings):
-    """
-    直接 POST 百炼 ``compatible-mode/v1/embeddings``。
+class HttpOpenAIEmbeddings:
+    """OpenAI 兼容的 embeddings HTTP 客户端。
 
-    官方说明与 OpenAI 一致：JSON 使用 ``input``（str 或 list[str]）、``encoding_format``，
-    ``text-embedding-v4`` 还可传 ``dimensions``。单请求最多 10 条文本（v4 限制）。
-    参考：https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai
+    直接 POST ``{base_url}/embeddings``（``input``、``encoding_format``、可选 ``dimensions``）。
+    百炼 ``text-embedding-v4`` 单请求最多 10 条文本。
     """
 
     def __init__(
@@ -29,15 +27,31 @@ class DashScopeCompatibleEmbeddings(Embeddings):
         base_url: str,
         dimensions: int | None = 1024,
         timeout: float = 120.0,
-        batch_size: int = 10,
+        batch_size: int | None = None,
     ) -> None:
+        """初始化请求参数与批大小。"""
         self.model = model
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.dimensions = dimensions
         self.timeout = timeout
-        self.batch_size = max(1, min(batch_size, 10))
+        if batch_size is not None:
+            self.batch_size = max(1, batch_size)
+        elif model == "text-embedding-v4":
+            self.batch_size = 10
+        else:
+            self.batch_size = 100
         self._url = f"{self.base_url}/embeddings"
+
+    @classmethod
+    def from_config(cls, config: EmbeddingConfig) -> HttpOpenAIEmbeddings:
+        """由 ``llm_global_setting`` + ``llm_vendor`` 解析得到的配置构造客户端。"""
+        return cls(
+            model=config.model,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            dimensions=config.dimensions,
+        )
 
     def _parse_response(self, body: dict[str, Any]) -> list[list[float]]:
         data = body.get("data")
@@ -62,11 +76,12 @@ class DashScopeCompatibleEmbeddings(Embeddings):
             r = client.post(self._url, json=payload, headers=headers)
             if r.is_error:
                 raise RuntimeError(
-                    f"百炼 embeddings HTTP {r.status_code}: {r.text[:2000]}"
+                    f"embeddings HTTP {r.status_code}: {r.text[:2000]}"
                 ) from None
             return self._parse_response(r.json())
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量嵌入文档文本。"""
         if not texts:
             return []
         cleaned = [t if (t or "").strip() else " " for t in texts]
@@ -78,36 +93,6 @@ class DashScopeCompatibleEmbeddings(Embeddings):
         return out
 
     def embed_query(self, text: str) -> list[float]:
+        """嵌入单条查询文本。"""
         t = (text or "").strip() or " "
         return self._post(t)[0]
-
-
-def create_embeddings(platform_code: str = "qwen-embedding", dimensions: int = 1024):
-    """
-    百炼 ``text-embedding-v4``：用 ``DashScopeCompatibleEmbeddings``（标准 ``input`` 体）。
-    其它模型用 ``OpenAIEmbeddings``。
-    """
-    if platform_code not in ai_config:
-        raise ValueError(f"Invalid platform code: {platform_code}")
-    platform_config = ai_config[platform_code]
-    key = (platform_config.get("api_key") or env_config.llm_deepseek_api_key or "").strip()
-    if not key:
-        raise ValueError(f"平台 {platform_code!r} 未配置 API Key")
-
-    model = platform_config["model"]
-    base_url = platform_config["base_url"]
-
-    if model == "text-embedding-v4":
-        return DashScopeCompatibleEmbeddings(
-            model=model,
-            api_key=key,
-            base_url=base_url,
-            dimensions=dimensions,
-        )
-
-    return OpenAIEmbeddings(
-        model=model,
-        api_key=key,
-        base_url=base_url,
-        dimensions=dimensions,
-    )

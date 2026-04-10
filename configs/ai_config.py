@@ -1,4 +1,7 @@
-"""各平台 LLM：``model`` / ``base_url`` 在此维护；``api_key`` 来自 ``env_config``。"""
+"""各平台 LLM：``model`` / ``base_url`` 在此维护；``api_key`` 来自 ``env_config``。
+
+嵌入模型已迁至数据库 ``llm_global_setting`` + ``llm_vendor``，不再在此配置。
+"""
 
 from configs.env import env_config
 
@@ -8,9 +11,4 @@ ai_config = {
         "base_url": "https://api.deepseek.com",
         "api_key": env_config.llm_deepseek_api_key,
     },
-    "Qwen-embedding-v4":{
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "api_key": env_config.llm_qwen_embedding_v4_api_key,
-        "model": "text-embedding-v4",
-    }
 }

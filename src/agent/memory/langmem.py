@@ -2,19 +2,23 @@
 
 默认在设置了 ``POSTGRES_URI``（或 ``LANGMEM_POSTGRES_URI``）时使用
 ``PostgresStore``（``langgraph-checkpoint-postgres``）持久化；否则回退 ``InMemoryStore``。
-向量维度与 ``MILVUS_DIM`` 一致，嵌入函数与知识库共用 ``MilvusService`` 的 embedding。
+向量维度与 RAG 一致（固定 1024）；嵌入与 RAG 共用 ``llm_global_setting`` + ``llm_vendor``，
+需设置 ``LANGMEM_EMBEDDING_OWNER_USER_ID`` 指向用于解析嵌入配置的用户 id。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langmem import create_manage_memory_tool, create_search_memory_tool
 
-from utils.milvus_db import MilvusService
+from rag.embedding.http_openai import HttpOpenAIEmbeddings
+from shared.embedding.config import FIXED_EMBEDDING_DIMENSION
+from shared.embedding.sync_resolve import sync_resolve_embedding_config
 
 logger = logging.getLogger("agent.memory.langmem")
 
@@ -24,6 +28,8 @@ LANGMEM_ENABLED = os.getenv("LANGMEM_ENABLED", "1").lower() in ("1", "true", "ye
 LANGMEM_STORE_MODE = os.getenv("LANGMEM_STORE", "auto").strip().lower()
 
 _store: BaseStore | None = None
+
+_http_emb: Any = None
 
 _MANAGE_INSTRUCTIONS_ZH = (
     "在以下情况主动调用本工具：用户明确要求记住某事；出现稳定事实、偏好、习惯；"
@@ -36,14 +42,31 @@ def _postgres_uri() -> str:
     return (os.getenv("LANGMEM_POSTGRES_URI") or os.getenv("POSTGRES_URI") or "").strip()
 
 
+def _langmem_embedding_owner_user_id() -> int:
+    raw = os.getenv("LANGMEM_EMBEDDING_OWNER_USER_ID", "").strip()
+    if not raw:
+        raise RuntimeError(
+            "请设置 LANGMEM_EMBEDDING_OWNER_USER_ID（与 llm_global_setting 中已配置嵌入的用户 id 一致），"
+            "以便 LangMem 向量索引与全局嵌入模型对齐。",
+        )
+    return int(raw)
+
+
+def _get_http_embeddings():
+    global _http_emb
+    if _http_emb is None:
+        cfg = sync_resolve_embedding_config(_langmem_embedding_owner_user_id())
+        _http_emb = HttpOpenAIEmbeddings.from_config(cfg)
+    return _http_emb
+
+
 def _embed_sync(texts: list[str]) -> list[list[float]]:
-    return MilvusService().embeddings.embed_documents(texts)
+    return _get_http_embeddings().embed_documents(texts)
 
 
 def _index_config() -> dict:
-    dim = int(os.getenv("MILVUS_DIM", "1024"))
     return {
-        "dims": dim,
+        "dims": FIXED_EMBEDDING_DIMENSION,
         "embed": _embed_sync,
         "fields": ["content"],
     }
@@ -144,7 +167,6 @@ def get_langgraph_store() -> BaseStore | None:
     # 平台会根据 POSTGRES_URI 自动管理 persistence
     logger.info("Using platform-managed persistence - returning None for custom store")
     return None
-
 
 
 def build_langmem_tools():

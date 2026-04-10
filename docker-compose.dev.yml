@@ -13,6 +13,7 @@ services:
       - LANGGRAPH_API_URL=${LANGGRAPH_API_URL:-http://langgraph:8000}
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      - REDIS_URI=redis://redis:6379/0
       - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
       # Docker Desktop（Mac/Win）下绑定挂载常无法触发 inotify，reload 不生效时靠轮询检测改动
       - WATCHFILES_FORCE_POLLING=true
@@ -25,6 +26,35 @@ services:
       mysql:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # =============================================
+  # 索引入库 worker（消费 Redis 队列；需与 fastapi 相同源码与 static）
+  # =============================================
+  kb-ingest-worker:
+    build: .
+    container_name: kb-ingest-worker-dev
+    env_file:
+      - .env
+    environment:
+      # 避免日志/Traceback 块缓冲导致 ``docker logs`` 里看不到刚发生的异常栈
+      - PYTHONUNBUFFERED=1
+      - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
+      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      - REDIS_URI=redis://redis:6379/0
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs
+      - ./static:/app/static
+    command: python -m rag.worker.kb_ingest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network
@@ -194,6 +224,26 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - app-network
+
+  # =============================================
+  # Attu — Milvus Web 管理界面（按需：--profile attu）
+  # 浏览器访问 http://localhost:8000 ，连接地址填 milvus:19530（同网络）或见下方说明
+  # =============================================
+  attu:
+    image: zilliz/attu:v2.4.1
+    container_name: milvus-attu-dev
+    profiles:
+      - attu
+    ports:
+      - "8000:3000"
+    environment:
+      # Attu 容器内访问 compose 里的 Milvus 服务名（勿用 localhost）
+      - MILVUS_URL=milvus:19530
+    depends_on:
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
