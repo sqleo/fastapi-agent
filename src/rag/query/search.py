@@ -251,7 +251,7 @@ async def search_in_knowledge_base_formatted_async(
         query.strip(),
         top_k,
         cfg,
-        db_owner_user_id=owner_user_id,
-        knowledge_base_id=knowledge_base_id,
-        owner_user_id=owner_user_id,
+        db_owner_user_id=owner_user_id, # 知识库的owner_user_id
+        knowledge_base_id=knowledge_base_id, # 知识库的id
+        owner_user_id=owner_user_id, # 知识库的owner_user_id
     )

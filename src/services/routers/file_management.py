@@ -21,9 +21,11 @@ from services.controllers.file_management_controller import (
     soft_delete_file_owned,
     upload_file_owned,
 )
-from utils.content_semver import format_semver
-from services.controllers.file_parse_controller import parse_file_to_intermediate_md_owned
+from services.controllers.file_parse_controller import (
+    parse_file_to_intermediate_md_owned,
+)
 from utils.auth_deps import CurrentUserDeps
+from utils.content_semver import format_semver
 from utils.response import SuccessResponse, ok
 from utils.sql_db import AsyncSqlSessionDeps
 
@@ -165,7 +167,10 @@ async def reupload_file(
     session: AsyncSqlSessionDeps,
     file: UploadFile = File(..., description="新文件内容"),
 ) -> SuccessResponse[FileUploadItem]:
-    """覆盖同一 file_id 的存储内容：MAJOR 版本 +1，清空解析产物，已关联知识库条目回到 pending_md。"""
+    """覆盖同一 file_id 的存储内容：MAJOR 版本 +1，清空解析产物，已关联知识库条目回到 pending_md。
+
+    若新文件与当前内容 SHA256 相同，返回 409，不修改版本与磁盘。
+    """
     row, file_url = await reupload_file_owned(
         session,
         owner_user_id=current_user.id,

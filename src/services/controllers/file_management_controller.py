@@ -9,7 +9,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import aiofiles
-
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -48,6 +47,34 @@ async def _get_owned_folder_or_404(
     if row is None or row.owner_user_id != owner_user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件夹不存在")
     return row
+
+
+async def _get_active_file_same_scope_name(
+    session: AsyncSession,
+    *,
+    owner_user_id: int,
+    file_name: str,
+    folder_id: int | None,
+    project_code: str | None,
+) -> FileAssetModel | None:
+    """同一归属、同一目录与项目范围内是否已有未删除的同名文件。"""
+    stmt = (
+        select(FileAssetModel)
+        .where(FileAssetModel.owner_user_id == owner_user_id)
+        .where(FileAssetModel.file_name == file_name)
+        .where(FileAssetModel.is_deleted.is_(False))
+    )
+    if folder_id is None:
+        stmt = stmt.where(FileAssetModel.folder_id.is_(None))
+    else:
+        stmt = stmt.where(FileAssetModel.folder_id == folder_id)
+    if project_code is None:
+        stmt = stmt.where(FileAssetModel.project_code.is_(None))
+    else:
+        stmt = stmt.where(FileAssetModel.project_code == project_code)
+    stmt = stmt.limit(1)
+    res = await session.execute(stmt)
+    return res.scalars().first()
 
 
 async def create_folder_owned(
@@ -156,6 +183,29 @@ async def upload_file_owned(
     ext = Path(file_name).suffix.lower().lstrip(".") or None
     content_type = (upload.content_type or "").strip() or None
     file_hash = hashlib.sha256(body).hexdigest()
+
+    existing = await _get_active_file_same_scope_name(
+        session,
+        owner_user_id=owner_user_id,
+        file_name=file_name,
+        folder_id=folder_id,
+        project_code=normalized_project_code,
+    )
+    if existing is not None:
+        same_content = (existing.file_hash or "") == file_hash
+        if same_content:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"message": "文件已上传，内容没有变化"},
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "文件已上传，内容有变更，请使用重新上传接口更新同一文件。",
+                "file_id": existing.id,
+            },
+        )
+
     now = datetime.now(UTC)
     storage_key = f"uploads/{owner_user_id}/{now:%Y/%m}/{uuid4().hex}_{file_name}"
     save_path = Path("static") / storage_key
@@ -226,6 +276,12 @@ async def reupload_file_owned(
     ext = Path(new_name).suffix.lower().lstrip(".") or None
     content_type = (upload.content_type or "").strip() or None
     file_hash = hashlib.sha256(body).hexdigest()
+    if (row.file_hash or "") == file_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "内容没有变化，无需更新"},
+        )
+
     now = datetime.now(UTC)
     storage_key = f"uploads/{owner_user_id}/{now:%Y/%m}/{uuid4().hex}_{new_name}"
 

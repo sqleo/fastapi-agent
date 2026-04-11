@@ -81,15 +81,34 @@ def _detail_to_message(detail: Any) -> str:
         return "请求处理失败"
 
 
+def _parse_http_exception_detail(detail: Any) -> tuple[str, Any]:
+    """将 ``HTTPException.detail`` 解析为 ``(message, data)``。
+
+    - 若为 ``str``：整段作为 ``message``，``data`` 为 ``None``。
+    - 若为 ``dict`` 且含 ``message`` 键：``message`` 为文案，其余键放入 ``data``（无则 ``None``）。
+    - 其他类型：回退为 ``str(detail)``，``data`` 为 ``None``。
+    """
+    if isinstance(detail, str):
+        return detail, None
+    if isinstance(detail, dict) and "message" in detail:
+        msg = detail["message"]
+        if not isinstance(msg, str):
+            msg = str(msg)
+        rest = {k: v for k, v in detail.items() if k != "message"}
+        return msg, rest if rest else None
+    return _detail_to_message(detail), None
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """注册全局异常处理，将 HTTP 异常与参数校验错误转为 ``FailResponse`` JSON."""
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        message, data = _parse_http_exception_detail(exc.detail)
         body = fail(
             code=_http_status_to_biz_code(exc.status_code),
-            message=_detail_to_message(exc.detail),
-            data=None,
+            message=message,
+            data=data,
         )
         return JSONResponse(
             status_code=exc.status_code,
