@@ -6,7 +6,8 @@
     "connection_string": "$POSTGRES_URI"
   },
   "graphs": {
-    "agent": "./src/agent/core/graph.py:graph"
+    "agent": "./src/agent/core/graph.py:graph",
+    "customer_service": "./src/agent/core/graph_customer_service.py:graph"
   },
   "env": ".env",
   "image_distro": "wolfi"

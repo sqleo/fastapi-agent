@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid as _uuid
 
@@ -136,6 +137,24 @@ def _parse_uuid(val: str | None) -> _uuid.UUID | None:
         return None
 
 
+def _parse_config_user_id(raw: object) -> int | None:
+    """解析 ``configurable.user_id``：非空且可转为正整数则返回，否则 ``None``。"""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
 async def _persist_monitoring(log, session_uuid, user_id, thread_id, total_tokens):
     """后台持久化监控数据，异常只记日志不影响业务。"""
     try:
@@ -157,18 +176,34 @@ async def _persist_monitoring(log, session_uuid, user_id, thread_id, total_token
 @wrap_model_call
 async def inject_llm_from_global_settings(request, handler):
     """根据 configurable.user_id 从数据库加载对应 LLM 并注入。
-
-    这是一个典型的「注入型」中间件，依赖数据库和 LLM 初始化逻辑，
-    因此单独放在 injection/ 目录下，而非纯技术 middleware/。
     """
     config = get_config()
     configurable = config.get("configurable") or {}
-    user_id = configurable.get("user_id")
+    user_id_raw = configurable.get("user_id")
+    user_id = _parse_config_user_id(user_id_raw)
     thread_id = configurable.get("thread_id")
 
     if user_id is None:
-        logger.error("model_step 缺少 configurable.user_id")
-        raise ValueError("LangGraph 调用缺少 configurable.user_id，无法加载 LLM 全局设置")
+        # LangGraph Studio / langgraph dev 有时不会把 Assistant 默认配置合并进 run.config；
+        # 本地调试可在 .env 设置 LANGGRAPH_DEV_USER_ID（勿在生产环境依赖）。
+        fb = (os.environ.get("LANGGRAPH_DEV_USER_ID") or "").strip()
+        if fb:
+            user_id = _parse_config_user_id(fb)
+            if user_id is not None:
+                logger.warning(
+                    "configurable.user_id 未传入，已使用 LANGGRAPH_DEV_USER_ID=%s（仅本地调试用）",
+                    user_id,
+                )
+
+    if user_id is None:
+        logger.error(
+            "model_step 缺少有效的 configurable.user_id（当前值=%r）",
+            user_id_raw,
+        )
+        raise ValueError(
+            "LangGraph 调用缺少有效的 configurable.user_id（须为正整数，不能为空字符串），"
+            "无法加载 LLM 全局设置",
+        )
 
     n_msg = len(request.messages or [])
     n_tools = len(request.tools or [])
@@ -183,8 +218,14 @@ async def inject_llm_from_global_settings(request, handler):
 
     t0 = time.perf_counter()
     try:
+        override = configurable.get("llm_temperature")
+        temperature_override = float(override) if override is not None else None
         async with async_session() as session:
-            llm = await create_llm(session, int(user_id))
+            llm = await create_llm(
+                session,
+                user_id,
+                temperature_override=temperature_override,
+            )
 
         model_label = (
             getattr(llm, "model_name", None)

@@ -30,12 +30,17 @@ async def create_llm(
     owner_user_id: int,
     *,
     temperature: float = 0.0,
-    max_tokens: int = 1000,
+    max_tokens: int = 1024,
+    temperature_override: float | None = None,
 ) -> BaseChatModel:
     """根据「LLM 全局设置」创建聊天模型。
 
     DeepSeek 推理模型（deepseek-reasoner 等）使用 ``ChatDeepSeek``
     以支持流式 ``reasoning_content``；其余走 ``init_chat_model`` + OpenAI 兼容。
+
+    Args:
+        temperature_override: 若不为 ``None``，则**优先**作为采样温度（按 Agent / 助手维度覆盖）；
+            为 ``None`` 时沿用厂商 ``extra_config.temperature``，再无则使用 ``temperature``。
     """
     settings = await get_global_setting_owned(session, owner_user_id=owner_user_id)
     if not settings.chat_vendor_id or not (settings.chat_model or "").strip():
@@ -56,17 +61,23 @@ async def create_llm(
     api_key = (vendor.api_key or "").strip()
     model = settings.chat_model.strip()
     extra = vendor.extra_config if isinstance(vendor.extra_config, dict) else {}
-    temp = float(extra["temperature"]) if extra.get("temperature") is not None else temperature
+    if temperature_override is not None:
+        temp = float(temperature_override)
+    elif extra.get("temperature") is not None:
+        temp = float(extra["temperature"])
+    else:
+        temp = temperature
     mxt = int(extra["max_tokens"]) if extra.get("max_tokens") is not None else max_tokens
     vendor_code = (vendor.code or "").strip().lower()
 
     if _is_deepseek_reasoner(model, vendor_code):
-        logger.info("create_llm: using ChatDeepSeek for model=%s", model)
+        logger.info("create_llm: using ChatDeepSeek for model=%s temp=%s", model, temp)
         return ChatDeepSeek(
             model=model,
             api_key=api_key if api_key else None,
             api_base=base_url,
             max_tokens=mxt,
+            temperature=temp,
         )
 
     return init_chat_model(

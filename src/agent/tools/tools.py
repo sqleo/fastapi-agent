@@ -2,32 +2,37 @@
 
 from __future__ import annotations
 
-import logging
-
 from langchain_core.tools import tool
 
 from agent.memory.langmem import LANGMEM_TOOLS
 from agent.tools.decorators import hidden_from_client
-from rag.query.search import milvus_similarity_search_text
+from agent.tools.runtime_user import langgraph_runtime_user_id
+from rag.query.search import milvus_similarity_search_text_async
 
-logger = logging.getLogger("agent.tools")
 
 @tool
-def milvus_search(
+async def milvus_search(
     query: str,
     top_k: int = 5,
     knowledge_base_id: int | None = None,
-    owner_user_id: int | None = None,
 ) -> str:
     """搜索向量数据库中的文档，返回与查询相关的文档。
+
+    归属用户由服务端从登录会话注入，模型不可指定租户。
+    不传 ``knowledge_base_id`` 时：检索**当前用户下全部知识库**；传入时：仅检索**该知识库 id** 下已入库片段。
 
     Args:
         query: 搜索查询文本。
         top_k: 返回结果数量，默认为 5。
-        knowledge_base_id: 若提供则只检索该知识库下的片段（与入库写入的 metadata 一致）。
-        owner_user_id: 可选；与 knowledge_base_id 同时提供时进一步按用户隔离。
+        knowledge_base_id: 可选；指定则只搜该知识库，不传则搜该用户下所有知识库。
     """
-    return milvus_similarity_search_text(
+    owner_user_id = langgraph_runtime_user_id()
+    if owner_user_id is None:
+        return (
+            "检索失败：无法解析当前登录用户上下文。"
+            "请确认通过已登录会话调用 Agent，且 LangGraph 配置中包含 user_id。"
+        )
+    return await milvus_similarity_search_text_async(
         query,
         top_k=top_k,
         knowledge_base_id=knowledge_base_id,

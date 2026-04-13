@@ -1,0 +1,135 @@
+# 合并到 main（或手动运行）：构建镜像 → 推送到 GHCR
+# 可选：HTTP 钩子通知服务器拉取；可选 SSH 部署（见下方 jobs）
+
+name: Docker build & push
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_DEPLOY_HOOK: http://123.207.188.25:9080/hooks/redeploy
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name (GHCR 要求全小写)
+        id: image
+        run: |
+          echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 与 FastAPI 镜像独立：失败不阻塞 notify；不影响主流程结论时可单独排查
+  build-langgraph:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and sync (LangGraph CLI)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv sync --frozen --no-dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push LangGraph Platform image
+        run: |
+          set -euo pipefail
+          REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          IMG="ghcr.io/${REPO_LC}-langgraph"
+          export PATH="${{ github.workspace }}/.venv/bin:$PATH"
+          langgraph build -t "${IMG}:latest"
+          SHORT_SHA=$(echo '${{ github.sha }}' | cut -c1-7)
+          docker tag "${IMG}:latest" "${IMG}:${SHORT_SHA}"
+          docker push "${IMG}:latest"
+          docker push "${IMG}:${SHORT_SHA}"
+
+  notify-server:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: HTTP hook — 通知服务器拉取最新镜像（可选）
+        env:
+          HOOK_URL_SECRET: ${{ secrets.SERVER_DEPLOY_HOOK_URL }}
+          HOOK_TOKEN: ${{ secrets.SERVER_DEPLOY_HOOK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOOK_URL_SECRET:-}" ] && [ -z "${HOOK_TOKEN:-}" ]; then
+            echo "::notice::未配置 SERVER_DEPLOY_HOOK_TOKEN / SERVER_DEPLOY_HOOK_URL，跳过部署通知（仅推送镜像到 GHCR）"
+            exit 0
+          fi
+          URL="${HOOK_URL_SECRET:-}"
+          if [ -z "$URL" ]; then
+            URL="${{ env.DEFAULT_DEPLOY_HOOK }}?token=${HOOK_TOKEN}"
+          fi
+          curl -fsS -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"sha\":\"${{ github.sha }}\",\"ref\":\"${{ github.ref }}\",\"repository\":\"${{ github.repository }}\"}"
+
+  deploy:
+    needs: build-and-push
+    if: ${{ vars.ENABLE_SSH_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy (docker compose pull & up)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            docker compose pull
+            docker compose up -d --remove-orphans

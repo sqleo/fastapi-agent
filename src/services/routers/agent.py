@@ -17,17 +17,13 @@ from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.tools import hidden_from_client_tool_names, merge_enabled_with_hidden, tool_catalog_for_client
 from agent.control.interrupt import request_pause, resume_from_pause
 from agent.control.time_travel import get_formatted_history, travel
-from utils.auth_deps import CurrentUserDeps
-from utils.response import SuccessResponse, ok
-from utils.sql_db import AsyncSqlSessionDeps
-from services.controllers.agent_tool_settings_controller import (
-    get_saved_enabled_tools,
-    upsert_enabled_tools,
+from agent.tools import (
+    hidden_from_client_tool_names,
+    merge_enabled_with_hidden,
+    tool_catalog_for_client,
 )
-from schemas.chat_schema import DeleteChatResponse
 from schemas.chat_control_schema import (
     HistoryResponse,
     PauseRequest,
@@ -37,6 +33,15 @@ from schemas.chat_control_schema import (
     TimeTravelRequest,
     TimeTravelResponse,
 )
+from schemas.chat_schema import DeleteChatResponse
+from services.controllers.agent_tool_settings_controller import (
+    get_saved_enabled_tools,
+    upsert_enabled_tools,
+)
+from utils.agent_temperature import resolve_llm_temperature_for_assistant
+from utils.auth_deps import CurrentUserDeps
+from utils.response import SuccessResponse, ok
+from utils.sql_db import AsyncSqlSessionDeps
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 logger = logging.getLogger("services.agent_api")
@@ -93,6 +98,7 @@ def _agent_run_config(
     user_id: int,
     enabled_tools: list[str] | None,
     thread_id: str | None = None,
+    assistant_id: str = "agent",
 ) -> dict[str, Any]:
     # LangMem 命名空间模板从 configurable 取字符串键 user_id / thread_id
     conf: dict[str, Any] = {"user_id": str(user_id)}
@@ -100,6 +106,9 @@ def _agent_run_config(
         conf["thread_id"] = str(thread_id)
     if enabled_tools is not None:
         conf["enabled_tools"] = enabled_tools
+    temp = resolve_llm_temperature_for_assistant(assistant_id)
+    if temp is not None:
+        conf["llm_temperature"] = temp
     return {"configurable": conf}
 
 
@@ -201,6 +210,7 @@ async def chat(
         user_id=current_user.id,
         enabled_tools=enabled,
         thread_id=tid,
+        assistant_id="agent",
     )
 
     result = await client.runs.wait(
@@ -230,11 +240,29 @@ def _internal_tool_names() -> frozenset[str]:
     return hidden_from_client_tool_names()
 
 
+def _normalize_custom_stream_payload(raw_data: Any) -> dict[str, Any] | None:
+    """解析 ``stream_mode`` 含 ``custom`` 时的 ``raw``（可能是 dict 或 tuple）。"""
+    if isinstance(raw_data, dict):
+        return raw_data
+    if isinstance(raw_data, (list, tuple)) and raw_data:
+        last = raw_data[-1]
+        if isinstance(last, dict):
+            return last
+    return None
+
+
 async def _transform_stream_part(ev: str, raw_data: Any):
     """清洗 LangGraph 原始流数据，只产出前端需要的精简包。
 
     对 ``hidden_from_client`` 标记的基础工具：不推送「调用工具」与 reference，避免暴露内部记忆流程。
+    当 ``ev`` 为 ``custom`` 时：转发工具内 ``get_stream_writer`` 写入的块（如 ``knowledge_base_search``）。
     """
+    if str(ev).lower() == "custom":
+        payload = _normalize_custom_stream_payload(raw_data)
+        if payload is not None:
+            yield {"type": "custom", "payload": payload}
+        return
+
     if ev != "messages" or not isinstance(raw_data, list) or not raw_data:
         return
 
@@ -274,6 +302,7 @@ async def chat_stream(
     sql: AsyncSqlSessionDeps,
 ):
     """SSE：每条 ``data:`` 后为 JSON。
+
     订阅哪些模式由环境变量 ``LANGGRAPH_AGENT_STREAM_MODES`` 控制（逗号分隔），默认
     ``messages-tuple,values,updates,debug``。
     """
@@ -297,6 +326,7 @@ async def chat_stream(
         user_id=current_user.id,
         enabled_tools=enabled,
         thread_id=tid,
+        assistant_id="agent",
     )
 
     stream_modes = _agent_stream_modes()
@@ -339,7 +369,7 @@ async def chat_stream(
             # 结束标志
             yield _sse_json({"type": "done", "thread_id": tid})
             
-        except Exception as e:
+        except Exception:
             logger.exception("Stream execution failed for tid=%s", tid)
             yield _sse_json({"type": "error", "message": "流式接口异常"})
 
@@ -422,7 +452,7 @@ async def pause_generation(
     logger.info("pause_generation user_id=%s thread_id=%s", current_user.id, thread_id)
 
     try:
-        result = await request_pause(thread_id)
+        await request_pause(thread_id)
         # 这里可以进一步通过 SDK 获取最新 checkpoint_id（简化版先不取）
         return ok(
             PauseResponse(
@@ -454,7 +484,7 @@ async def resume_generation(
     logger.info("resume_generation user_id=%s thread_id=%s", current_user.id, thread_id)
 
     resume_value = req.resume_value if req else None
-    result = await resume_from_pause(thread_id, resume_value)
+    await resume_from_pause(thread_id, resume_value)
 
     return ok(
         ResumeResponse(

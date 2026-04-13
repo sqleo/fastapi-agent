@@ -206,6 +206,40 @@ def milvus_similarity_search_text(
     )
 
 
+async def milvus_similarity_search_text_async(
+    query: str,
+    top_k: int = 5,
+    *,
+    knowledge_base_id: int | None = None,
+    owner_user_id: int | None = None,
+) -> str:
+    """异步检索：在**当前运行中的事件循环**内解析嵌入并查库。
+
+    供 LangGraph 等异步上下文中调用的工具使用，避免 ``sync_resolve_embedding_config``
+    使用 ``asyncio.run()`` 与全局 ``async_engine`` 跨循环冲突。
+    """
+    if owner_user_id is None:
+        return "检索需要提供 owner_user_id，以加载该用户在全局设置中的嵌入厂商与模型。"
+    from shared.embedding.exceptions import EmbeddingConfigurationError
+    from shared.embedding.provider import DatabaseEmbeddingSettingsProvider
+    from utils.sql_db import async_session
+
+    try:
+        async with async_session() as session:
+            cfg = await DatabaseEmbeddingSettingsProvider().resolve(session, owner_user_id)
+    except EmbeddingConfigurationError as exc:
+        return str(exc)
+
+    return milvus_similarity_search_with_config(
+        query,
+        top_k,
+        cfg,
+        db_owner_user_id=owner_user_id,
+        knowledge_base_id=knowledge_base_id,
+        owner_user_id=owner_user_id,
+    )
+
+
 def search_in_knowledge_base(
     query: str,
     *,
