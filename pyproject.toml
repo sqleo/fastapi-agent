@@ -6,7 +6,7 @@ authors = [
     { name = "William Fu-Hinthorn", email = "13333726+hinthornw@users.noreply.github.com" },
 ]
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.135.1",
@@ -44,7 +44,7 @@ dependencies = [
 dev = ["mypy>=1.11.1", "ruff>=0.6.1"]
 
 [build-system]
-requires = ["setuptools>=73.0.0", "wheel"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -54,7 +54,6 @@ packages = [
     "schemas",
     "services",
     "shared",
-    "prompts",
     "utils",
     "models",
     "monitor",
@@ -67,7 +66,6 @@ packages = [
 "schemas" = "src/schemas"
 "services" = "src/services"
 "shared" = "src/shared"
-"prompts" = "src/prompts"
 "utils" = "src/utils"
 "models" = "src/models"
 "monitor" = "src/monitor"
@@ -75,7 +73,6 @@ packages = [
 "parsing" = "src/parsing"
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
-"prompts" = ["**/*.j2"]
 
 [tool.ruff]
 lint.select = [
@@ -110,7 +107,6 @@ lint.ignore = [
 "src/agent/context_window_middleware.py" = ["D415"]
 "configs/**/*.py" = ["D415"]
 "src/monitor/**/*.py" = ["D415"]
-"src/prompts/**/*.py" = ["D415"]
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
