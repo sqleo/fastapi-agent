@@ -20,6 +20,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    volumes:
+      # 与 kb-ingest-worker 共享解析产物 static/parsed_md/，否则 worker 读不到中间 Markdown
+      - app_static:/app/static
     networks:
       - app-network
 
@@ -45,6 +48,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - app_static:/app/static
     restart: unless-stopped
     networks:
       - app-network
@@ -223,6 +228,7 @@ services:
       - app-network
 
 volumes:
+  app_static:
   pgdata:
   redisdata:
   mysqldata:

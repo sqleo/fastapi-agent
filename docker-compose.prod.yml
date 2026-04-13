@@ -29,6 +29,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - app_static:/app/static
     restart: unless-stopped
     networks:
       - app-network
@@ -49,6 +51,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - app_static:/app/static
     restart: unless-stopped
     networks:
       - app-network
@@ -215,6 +219,7 @@ services:
       - app-network
 
 volumes:
+  app_static:
   pgdata_prod:
   redisdata_prod:
   mysqldata_prod:

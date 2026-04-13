@@ -127,3 +127,9 @@ docker compose -f docker-compose.dev.yml build fastapi
 docker compose -f docker-compose.dev.yml up -d
 ```
 
+```bash
+# 部署
+./scripts/push-tcr.sh
+docker compose -f docker-compose.dev.yml pull
+docker compose -f docker-compose.dev.yml up -d
+```

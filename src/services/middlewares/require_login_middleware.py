@@ -20,8 +20,10 @@ _PUBLIC_PATHS: Final[frozenset[str]] = frozenset(
         "/",
         "/ok",
         "/openapi.json",
-        "/auth/login",
-        "/auth/register",
+        "/v1/auth/login",
+        "/v1/auth/register",
+        # 厂商市场（未登录也可浏览，与路由层无 CurrentUser 一致）
+        "/v1/llm/vendors/marketplace",
     }
 )
 
