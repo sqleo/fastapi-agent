@@ -1,8 +1,5 @@
 # New LangGraph Project
 
-[CI](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/unit-tests.yml)
-[Integration Tests](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/integration-tests.yml)
-
 This template demonstrates a simple application implemented using [LangGraph](https://github.com/langchain-ai/langgraph), designed for showing how to get started with [LangGraph Server](https://langchain-ai.github.io/langgraph/concepts/langgraph_server/#langgraph-server) and using [LangGraph Studio](https://langchain-ai.github.io/langgraph/concepts/langgraph_studio/), a visual debugging IDE.
 
 The core logic defined in `src/agent/graph.py`, showcases an single-step application that responds with a fixed string and the configuration provided.
@@ -106,8 +103,10 @@ LangGraph Studio also integrates with [LangSmith](https://smith.langchain.com/) 
 ## Quick Start
 
 ```bash
-# 构建所有镜像
-./build.sh
+# 构建镜像（Agent 代码变更后需重新执行）
+uv run langgraph build -t langgraph-agent:latest
+docker compose --profile redis build fastapi kb-ingest-worker
+
 
 # 全部本地部署（MySQL + Milvus 都启动）
 docker compose --profile mysql --profile milvus up -d
@@ -120,15 +119,11 @@ docker compose --profile mysql up -d
 
 # 全部用第三方，只启动 FastAPI + LangGraph + PostgreSQL
 docker compose up -d
-
 ```
 
 ```bash
-# 首次：构建 LangGraph 镜像（只需一次，Agent 代码改了再重新构建）
-langgraph build -t langgraph-agent
-
+# 开发：热更新（需已按上文构建好镜像）
 docker compose -f docker-compose.dev.yml build fastapi
-# 每天开发：一条命令启动全部，改代码自动热更新
 docker compose -f docker-compose.dev.yml up -d
 ```
 

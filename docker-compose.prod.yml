@@ -1,9 +1,16 @@
+# 生产 / 服务器：与 docker-compose.dev.yml 同栈（MySQL、Postgres、Redis、Milvus、kb-ingest），
+# 应用层使用 TCR 镜像，无源码挂载。
+#
+# 前置：docker login ccr.ccs.tencentyun.com
+# 启动：docker compose -f docker-compose.prod.yml up -d
+# 更新：docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+#
+# 可选环境变量（默认与 scripts/push-tcr.sh 推的地址一致）：
+#   FASTAPI_IMAGE、LANGGRAPH_IMAGE
+
 services:
-  # =============================================
-  # FastAPI 业务服务（始终部署）
-  # =============================================
   fastapi:
-    build: .
+    image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: fastapi-app
     ports:
       - "8888:8888"
@@ -13,25 +20,22 @@ services:
       - LANGGRAPH_API_URL=${LANGGRAPH_API_URL:-http://langgraph:8000}
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      - REDIS_URI=redis://redis:6379/0
       - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
-    restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - app-network
 
-  # =============================================
-  # 索引入库 worker：与 fastapi 共用同一镜像（build: .），仅启动命令不同（python -m rag.worker.kb_ingest）。
-  # 拆成独立服务便于单独启停、扩容、与 HTTP 进程隔离；需 Redis 时与 redis 同档启用。
-  # =============================================
   kb-ingest-worker:
-    build: .
+    image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: kb-ingest-worker
-    profiles:
-      - redis
     env_file:
       - .env
     environment:
@@ -49,22 +53,19 @@ services:
     networks:
       - app-network
 
-  # =============================================
-  # LangGraph Platform 服务（始终部署）
-  # 使用镜像 langgraph-agent:latest（本地需先 langgraph build）
-  # =============================================
   langgraph:
-    image: langgraph-agent:latest
+    image: ${LANGGRAPH_IMAGE:-ccr.ccs.tencentyun.com/sqliu/langgraph-agent:latest}
     container_name: langgraph-server
     ports:
       - "8123:8000"
     env_file:
       - .env
     environment:
+      - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
+      - REDIS_URI=${REDIS_URI:-redis://redis:6379}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
       - MILVUS_DIM=${MILVUS_DIM:-1024}
-      - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ok')"]
       interval: 10s
@@ -75,10 +76,6 @@ services:
     networks:
       - app-network
 
-  # =============================================
-  # PostgreSQL — LangGraph Checkpointer（可选，支持第三方）
-  # 使用第三方时：修改 .env 中 POSTGRES_URI 即可
-  # =============================================
   postgres:
     image: postgres:16-alpine
     container_name: langgraph-postgres
@@ -89,7 +86,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_prod:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -99,19 +96,13 @@ services:
     networks:
       - app-network
 
-  # =============================================
-  # Redis — LangGraph Platform 依赖（可选，支持第三方）
-  # 使用第三方时：修改 .env 中 REDIS_URI 即可
-  # =============================================
   redis:
     image: redis:7-alpine
     container_name: langgraph-redis
-    profiles:
-      - redis
     ports:
       - "6379:6379"
     volumes:
-      - redisdata:/data
+      - redisdata_prod:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -121,10 +112,6 @@ services:
     networks:
       - app-network
 
-  # =============================================
-  # MySQL — 业务数据库（可选，支持第三方）
-  # 使用第三方时：修改 .env 中 MYSQL_HOST 等变量即可
-  # =============================================
   mysql:
     image: mysql:8.0
     container_name: app-mysql
@@ -134,7 +121,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - mysqldata:/var/lib/mysql
+      - mysqldata_prod:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
@@ -145,22 +132,16 @@ services:
     networks:
       - app-network
 
-  # =============================================
-  # Milvus — 向量数据库（可选，支持第三方）
-  # 使用第三方时：修改 .env 中 MILVUS_HOST 等变量即可
-  # =============================================
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
     container_name: milvus-etcd
-    profiles:
-      - milvus
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
-      - etcddata:/etcd
+      - etcddata_prod:/etcd
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
@@ -174,8 +155,6 @@ services:
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     container_name: milvus-minio
-    profiles:
-      - milvus
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -183,7 +162,7 @@ services:
       - "9001:9001"
       - "9000:9000"
     volumes:
-      - miniodata:/minio_data
+      - miniodata_prod:/minio_data
     command: minio server /minio_data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -197,8 +176,6 @@ services:
   milvus:
     image: milvusdb/milvus:v2.4.17
     container_name: milvus-standalone
-    profiles:
-      - milvus
     command: milvus run standalone
     environment:
       ETCD_ENDPOINTS: etcd:2379
@@ -207,7 +184,7 @@ services:
       - "19530:19530"
       - "9091:9091"
     volumes:
-      - milvusdata:/var/lib/milvus
+      - milvusdata_prod:/var/lib/milvus
     depends_on:
       etcd:
         condition: service_healthy
@@ -222,13 +199,28 @@ services:
     networks:
       - app-network
 
+  attu:
+    image: zilliz/attu:v2.4.1
+    container_name: milvus-attu
+    profiles:
+      - attu
+    ports:
+      - "8000:3000"
+    environment:
+      - MILVUS_URL=milvus:19530
+    depends_on:
+      milvus:
+        condition: service_healthy
+    networks:
+      - app-network
+
 volumes:
-  pgdata:
-  redisdata:
-  mysqldata:
-  etcddata:
-  miniodata:
-  milvusdata:
+  pgdata_prod:
+  redisdata_prod:
+  mysqldata_prod:
+  etcddata_prod:
+  miniodata_prod:
+  milvusdata_prod:
 
 networks:
   app-network:
