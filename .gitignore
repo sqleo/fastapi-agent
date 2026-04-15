@@ -167,4 +167,4 @@ cython_debug/
 
 # 应用运行时本地日志
 logs/
-.idea/
+.idea/.env.docker
