@@ -1,4 +1,4 @@
-"""智能客服专用对话：固定 LangGraph 图 ``customer_service``，与通用 ``/agent/chat`` 分离."""
+"""路由 + 检索 + 生成示例图 ``graph_service``：对应 ``langgraph.json`` 中 ``graph_service``。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
 
-from agent.tools.customer_service_tools import merge_customer_service_enabled_tools
 from services.routers.agent import (
     LANGGRAPH_API_URL,
     ChatResponse,
@@ -21,41 +20,33 @@ from services.routers.agent import (
 )
 from utils.auth_deps import CurrentUserDeps
 
-logger = logging.getLogger("services.agent_customer_service")
+logger = logging.getLogger("services.graph_service_api")
 
-router = APIRouter(prefix="/agent/customer-service", tags=["Agent — 智能客服"])
+router = APIRouter(prefix="/agent/graph-service", tags=["Agent — GraphService"])
 
-# LangGraph Server 注册的图 id，须与 langgraph.json 中 ``graphs`` 键一致
-ASSISTANT_ID_CUSTOMER_SERVICE = "customer_service"
+ASSISTANT_ID_GRAPH_SERVICE = "graph_service"
 
 
-class CustomerServiceChatRequest(BaseModel):
-    """智能客服聊天请求。"""
+class GraphServiceChatRequest(BaseModel):
+    """与 ``graph_service`` 图对话（MessagesState，无独立工具开关字段）。"""
 
     message: str
-    thread_id: str | None = None
-    enabled_tools: list[str] | None = Field(
+    thread_id: str | None = Field(
         default=None,
-        description=(
-            "本次允许的工具名列表；不传则使用智能客服默认："
-            "knowledge_base_search + LangMem（manage_memory、search_memory）。"
-            "LangMem 工具会与所选集合自动合并，避免被误关。"
-        ),
+        description="已有会话则传入；不传则新建线程",
     )
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def customer_service_chat(
-    req: CustomerServiceChatRequest,
+async def graph_service_chat(
+    req: GraphServiceChatRequest,
     current_user: CurrentUserDeps,
 ):
-    """非流式对话；底层 ``assistant_id=customer_service``。"""
-    enabled = merge_customer_service_enabled_tools(req.enabled_tools)
+    """非流式：``assistant_id=graph_service``。"""
     logger.info(
-        "customer_service_chat start user_id=%s thread_id=%s tools=%s",
+        "graph_service_chat start user_id=%s thread_id=%s",
         current_user.id,
         req.thread_id or "-",
-        len(enabled),
     )
     client = get_client(url=LANGGRAPH_API_URL)
 
@@ -67,14 +58,14 @@ async def customer_service_chat(
     tid = thread["thread_id"]
     config = _agent_run_config(
         user_id=current_user.id,
-        enabled_tools=enabled,
+        enabled_tools=None,
         thread_id=tid,
-        assistant_id=ASSISTANT_ID_CUSTOMER_SERVICE,
+        assistant_id=ASSISTANT_ID_GRAPH_SERVICE,
     )
 
     result = await client.runs.wait(
         tid,
-        assistant_id=ASSISTANT_ID_CUSTOMER_SERVICE,
+        assistant_id=ASSISTANT_ID_GRAPH_SERVICE,
         input={"messages": [{"role": "user", "content": req.message}]},
         config=config,
     )
@@ -86,27 +77,24 @@ async def customer_service_chat(
         else str(last_message)
     )
     logger.info(
-        "customer_service_chat done user_id=%s thread_id=%s reply_chars=%s",
+        "graph_service_chat done user_id=%s thread_id=%s reply_chars=%s",
         current_user.id,
         tid,
         len(reply or ""),
     )
-
     return ChatResponse(reply=reply, thread_id=tid)
 
 
 @router.post("/chat/stream")
-async def customer_service_chat_stream(
-    req: CustomerServiceChatRequest,
+async def graph_service_chat_stream(
+    req: GraphServiceChatRequest,
     current_user: CurrentUserDeps,
 ):
-    """SSE 流式；语义同 ``POST /agent/chat/stream``，图 id 为 ``customer_service``。"""
-    enabled = merge_customer_service_enabled_tools(req.enabled_tools)
+    """SSE 流式，语义同其它 Agent 流式接口。"""
     logger.info(
-        "customer_service_stream start user_id=%s thread_id=%s tools=%s",
+        "graph_service_stream start user_id=%s thread_id=%s",
         current_user.id,
         req.thread_id or "-",
-        len(enabled),
     )
     client = get_client(url=LANGGRAPH_API_URL)
 
@@ -118,11 +106,10 @@ async def customer_service_chat_stream(
     tid = thread["thread_id"]
     config = _agent_run_config(
         user_id=current_user.id,
-        enabled_tools=enabled,
+        enabled_tools=None,
         thread_id=tid,
-        assistant_id=ASSISTANT_ID_CUSTOMER_SERVICE,
+        assistant_id=ASSISTANT_ID_GRAPH_SERVICE,
     )
-
     stream_modes = _agent_stream_modes()
     stream_subgraphs = _agent_stream_subgraphs()
 
@@ -134,36 +121,39 @@ async def customer_service_chat_stream(
                     "thread_id": tid,
                     "stream_modes": stream_modes,
                     "stream_subgraphs": stream_subgraphs,
+                    "assistant_id": ASSISTANT_ID_GRAPH_SERVICE,
                 }
             )
             async for part in client.runs.stream(
                 tid,
-                assistant_id=ASSISTANT_ID_CUSTOMER_SERVICE,
+                assistant_id=ASSISTANT_ID_GRAPH_SERVICE,
                 input={"messages": [{"role": "user", "content": req.message}]},
                 config=config,
                 stream_mode=stream_modes,
                 stream_subgraphs=stream_subgraphs,
             ):
                 ev = getattr(part, "event", "")
-                print(f"event: {ev}")
                 raw = part.data if hasattr(part, "data") else None
                 if ev == "error":
                     yield _sse_json({"type": "error", "message": str(raw)})
                     return
-                if ev == "interrupt" or (isinstance(raw, dict) and raw.get("type") == "user_pause"):
+                if ev == "interrupt" or (
+                    isinstance(raw, dict) and raw.get("type") == "user_pause"
+                ):
                     yield _sse_json({
                         "type": "paused",
                         "thread_id": tid,
-                        "message": "生成已暂停，可调用 /agent/chat/{thread_id}/pause 或 resume",
-                        "checkpoint": raw.get("checkpoint_id") if isinstance(raw, dict) else None,
+                        "message": "生成已暂停",
+                        "checkpoint": raw.get("checkpoint_id")
+                        if isinstance(raw, dict)
+                        else None,
                     })
                     continue
                 async for clean_chunk in _transform_stream_part(ev, raw):
                     yield _sse_json(clean_chunk)
-
             yield _sse_json({"type": "done", "thread_id": tid})
         except Exception:
-            logger.exception("customer_service stream failed tid=%s", tid)
+            logger.exception("graph_service stream failed tid=%s", tid)
             yield _sse_json({"type": "error", "message": "流式接口异常"})
 
     return StreamingResponse(

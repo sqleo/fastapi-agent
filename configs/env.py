@@ -16,19 +16,6 @@ class ConfigSettings(BaseSettings):
         extra="ignore",
     )
 
-    # ---------- DeepSeek----------
-    llm_deepseek_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("LLM_DEEPSEEK_API_KEY"),
-        description="DeepSeek API 密钥",
-    )
-    # ---------- Qwen-embedding-v4----------
-    llm_qwen_embedding_v4_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("LLM_QWEN_EMBEDDING_V4_API_KEY"),
-        description="Qwen-embedding-v4 API 密钥",
-    )
-
     # ---------- Redis（入库队列等）----------
     redis_uri: str = Field(
         default="",

@@ -8,6 +8,7 @@ import os
 _BUILTIN_TEMPERATURE_BY_ASSISTANT: dict[str, float | None] = {
     "agent": None,
     "customer_service": 0.2,
+    "graph_service": None,
 }
 
 

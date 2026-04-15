@@ -16,7 +16,11 @@ from rag.chunking.splitter import split_documents
 from rag.contracts import IngestContext, IngestResult
 from rag.embedding.factory import build_llama_embedding_from_config
 from rag.loaders.parsed_md import load_parsed_md_documents
-from rag.stores.milvus_store import build_milvus_vector_store
+from rag.stores.milvus_store import (
+    build_milvus_vector_store,
+    flush_milvus_collection,
+    load_milvus_collection,
+)
 from shared.embedding.config import EmbeddingConfig
 from shared.embedding.exceptions import EmbeddingConfigurationError
 from shared.embedding.sync_resolve import sync_resolve_embedding_config
@@ -96,8 +100,9 @@ def ingest_parsed_md_for_kb_file(
         vector_store = build_milvus_vector_store(dim=embedding_config.dimensions)
         ref_doc_id = str(int(ctx.kb_file_link_id))
 
-        # 删除旧向量
+        # 删除旧向量（须先 load，否则 query/delete 报 collection not loaded）
         try:
+            load_milvus_collection(vector_store)
             vector_store.delete(ref_doc_id=ref_doc_id)
         except Exception as exc:
             logger.warning(
@@ -148,9 +153,24 @@ def ingest_parsed_md_for_kb_file(
             to_milvus.append(new_node)
 
         if not to_milvus:
-            return IngestResult(ok=True, chunk_count=0, error_message=None)
+            return IngestResult(
+                ok=False,
+                chunk_count=0,
+                error_message="向量化后无有效切块（嵌入为空或全部被跳过），未写入 Milvus",
+            )
 
         vector_store.add(to_milvus)
+        try:
+            flush_milvus_collection(vector_store)
+        except Exception as exc:
+            logger.warning("Milvus flush 失败（数据可能已写入但未落盘可见）: %s", exc)
+
+        # 首次建集合并 insert 后服务端未必 Loaded；不 load 则后续检索会报 collection not loaded
+        try:
+            load_milvus_collection(vector_store)
+        except Exception as exc:
+            logger.warning("Milvus load_collection 失败（检索前仍会尝试 load）: %s", exc)
+
         return IngestResult(ok=True, chunk_count=len(to_milvus), error_message=None)
 
     except Exception as exc:

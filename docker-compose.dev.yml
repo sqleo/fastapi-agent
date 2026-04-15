@@ -1,21 +1,24 @@
+version: '3.9'
+
 services:
   # =============================================
-  # FastAPI 业务服务（热更新：挂载源码 + uvicorn --reload）
+  # FastAPI 业务服务（支持热更新）
   # =============================================
   fastapi:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
     container_name: fastapi-app-dev
     ports:
       - "8888:8888"
     env_file:
       - .env
     environment:
-      - LANGGRAPH_API_URL=${LANGGRAPH_API_URL:-http://langgraph:8000}
+      - LANGGRAPH_API_URL=http://langgraph:8000
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - REDIS_URI=redis://redis:6379/0
       - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
-      # Docker Desktop（Mac/Win）下绑定挂载常无法触发 inotify，reload 不生效时靠轮询检测改动
       - WATCHFILES_FORCE_POLLING=true
     volumes:
       - ./src:/app/src
@@ -29,19 +32,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
   # =============================================
-  # 索引入库 worker（消费 Redis 队列；需与 fastapi 相同源码与 static）
+  # 知识库入库 Worker
   # =============================================
   kb-ingest-worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
     container_name: kb-ingest-worker-dev
     env_file:
       - .env
     environment:
-      # 避免日志/Traceback 块缓冲导致 ``docker logs`` 里看不到刚发生的异常栈
       - PYTHONUNBUFFERED=1
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
@@ -56,26 +62,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
   # =============================================
-  # LangGraph Platform（热更新：langgraph dev 模式）
-  # 本地开发直接用 langgraph dev，不走 Docker
-  # 如果仍需容器化，使用 watch 模式
+  # LangGraph 服务（使用自定义 Dockerfile.langgraph）
   # =============================================
   langgraph:
-    image: langgraph-agent:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.langgraph
     container_name: langgraph-server-dev
     ports:
       - "8123:8000"
     env_file:
       - .env
-    volumes:
-      - ./AGENT.md:/deps/fastapi-agent/AGENT.md:ro
     environment:
       - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
-      - REDIS_URI=redis://redis:6379
+      - REDIS_URI=redis://redis:6379/0
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
       - MILVUS_DIM=${MILVUS_DIM:-1024}
@@ -85,14 +91,17 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./src/agent
-          target: /deps/fastapi-agent/src/agent
-        - action: sync+restart
-          path: ./src/monitor
-          target: /deps/fastapi-agent/src/monitor
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -159,7 +168,7 @@ services:
       - app-network
 
   # =============================================
-  # Milvus（standalone + etcd + minio）
+  # Milvus 相关服务
   # =============================================
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
@@ -200,17 +209,16 @@ services:
     networks:
       - app-network
 
+  # 升级前请备份 milvusdata_dev；2.4→2.5 见 https://milvus.io/docs/upgrade_milvus.md
   milvus:
-    image: milvusdb/milvus:v2.4.17
+    image: milvusdb/milvus:v2.5.27
     container_name: milvus-standalone-dev
     command: milvus run standalone
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
     ports:
-      # 本机 Attu / pymilvus / 应用均连 localhost:19530（gRPC）
       - "19530:19530"
-      # Milvus 管理 HTTP（健康检查等）
       - "9091:9091"
     volumes:
       - milvusdata_dev:/var/lib/milvus
@@ -228,19 +236,15 @@ services:
       - app-network
 
   # =============================================
-  # Attu — Milvus Web 管理界面（按需：--profile attu）
-  # 浏览器访问 http://localhost:8000 ，连接地址填 milvus:19530（同网络）或见下方说明
+  # Attu（Milvus 可视化管理；）
   # =============================================
   attu:
-    image: zilliz/attu:v2.4.1
+    image: zilliz/attu:v2.5.12
     container_name: milvus-attu-dev
-    profiles:
-      - attu
     ports:
       - "8000:3000"
     environment:
-      # Attu 容器内访问 compose 里的 Milvus 服务名（勿用 localhost）
-      - MILVUS_URL=milvus:19530
+      MILVUS_URL: milvus:19530
     depends_on:
       milvus:
         condition: service_healthy

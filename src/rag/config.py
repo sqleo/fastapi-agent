@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -57,3 +58,16 @@ def chunk_size() -> int:
 def chunk_overlap() -> int:
     """默认分块重叠."""
     return int(os.getenv("RAG_CHUNK_OVERLAP", "128"))
+
+
+def rag_milvus_hybrid_ranker() -> str:
+    """混合检索融合方式：``RRFRanker``（默认）或 ``WeightedRanker``（需配 ``rag_milvus_hybrid_ranker_params``）。"""
+    return os.getenv("RAG_MILVUS_HYBRID_RANKER", "RRFRanker").strip() or "RRFRanker"
+
+
+def rag_milvus_hybrid_ranker_params() -> dict[str, Any]:
+    """JSON，例如 RRF：``{\"k\": 60}``；加权：``{\"weights\": [0.7, 0.3]}``（稠密、稀疏）。空则使用 LlamaIndex 默认。"""
+    raw = os.getenv("RAG_MILVUS_HYBRID_RANKER_PARAMS", "").strip()
+    if not raw:
+        return {}
+    return json.loads(raw)

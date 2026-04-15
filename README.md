@@ -100,36 +100,30 @@ LangGraph Studio also integrates with [LangSmith](https://smith.langchain.com/) 
 | MinIO (Milvus S3)  | 9000/9001 | Milvus 内部依赖，随 milvus profile 启动 |
 
 
-## Quick Start
+### 🛠 开发环境 (Local Development)
 
-```bash
-# 构建镜像（Agent 代码变更后需重新执行）
-uv run langgraph build -t langgraph-agent:latest
-docker compose --profile redis build fastapi kb-ingest-worker
+# 1. 构建并启动所有服务 (包含 MySQL, Milvus, Redis, Postgres)
+# --build 会根据 Dockerfile 自动重新构建 fastapi 和 langgraph 镜像
+
+docker compose -f docker-compose.dev.yml up -d --build
+
+# 2. 如果只想启动特定的基础设施（例如只启动数据库，本地运行 Python 调试）
+docker compose -f docker-compose.dev.yml up -d mysql redis postgres milvus etcd minio
+
+# 3. 查看实时日志 (特别是 FastAPI 的热更新输出)
+docker compose -f docker-compose.dev.yml logs -f fastapi
 
 
-# 全部本地部署（MySQL + Milvus 都启动）
-docker compose --profile mysql --profile milvus up -d
+### 🚀 生产部署 (Production)
 
-# 仅 Milvus 本地，MySQL 用第三方
-docker compose --profile milvus up -d
+# 1. 在本地机器构建并推送到腾讯云 TCR
+chmod +x ./scripts/push-tcr.sh
+IMAGE_TAG=v1.0.0 ./scripts/push-tcr.sh
 
-# 仅 MySQL 本地，Milvus 用第三方（如 Zilliz Cloud）
-docker compose --profile mysql up -d
+# 2. 在生产服务器执行部署
+# 确保已修改 .env 中的镜像版本号或通过环境变量传入
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 
-# 全部用第三方，只启动 FastAPI + LangGraph + PostgreSQL
-docker compose up -d
-```
-
-```bash
-# 开发：热更新（需已按上文构建好镜像）
-docker compose -f docker-compose.dev.yml build fastapi
-docker compose -f docker-compose.dev.yml up -d
-```
-
-```bash
-# 部署
-./scripts/push-tcr.sh
-docker compose -f docker-compose.dev.yml pull
-docker compose -f docker-compose.dev.yml up -d
-```
+# 3. 验证 LangGraph 状态
+curl http://localhost:8123/ok

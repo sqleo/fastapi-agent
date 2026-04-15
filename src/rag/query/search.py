@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -58,12 +59,14 @@ def _get_vector_index_for_owner(owner_user_id: int, embedding_config: EmbeddingC
         return None
 
     from rag.embedding.factory import build_llama_embedding_from_config
-    from rag.stores.milvus_store import build_milvus_vector_store
+    from rag.stores.milvus_store import build_milvus_vector_store, load_milvus_collection
 
     embed_model = build_llama_embedding_from_config(embedding_config)
     if embed_model is None:
         return None
     vs = build_milvus_vector_store(dim=embedding_config.dimensions)
+    # 查询前必须 load；与入库进程分离时，仅靠 insert 不能保证 collection 处于 Loaded
+    load_milvus_collection(vs)
     idx = VectorStoreIndex.from_vector_store(
         vector_store=vs,
         embed_model=embed_model,
@@ -111,7 +114,7 @@ def _retrieve_nodes_with_config(
     knowledge_base_id: int | None = None,
     owner_user_id: int | None = None,
 ):
-    """向量检索；使用 Milvus 标量过滤而非 Python post-filter。"""
+    """向量检索；使用 Milvus 标量过滤"""
     index = _get_vector_index_for_owner(db_owner_user_id, embedding_config)
     if index is None:
         return None
@@ -120,8 +123,32 @@ def _retrieve_nodes_with_config(
         knowledge_base_id=knowledge_base_id,
         owner_user_id=owner_user_id,
     )
-    retriever = index.as_retriever(similarity_top_k=top_k, filters=filters)
-    return retriever.retrieve(query)
+    hybrid_retriever = index.as_retriever(
+        similarity_top_k=top_k,
+        filters=filters,
+        vector_store_query_mode="hybrid",
+    )
+    try:
+        return hybrid_retriever.retrieve(query)
+    except Exception as exc:  # pragma: no cover - 依赖 Milvus 版本与服务端行为
+        message = str(exc)
+        should_fallback = (
+            "VECTOR_SPARSE_FLOAT" in message
+            and "VARCHAR" in message
+            and "sparse_embedding" in message
+        )
+        if not should_fallback:
+            raise
+        logger.warning(
+            "hybrid 检索失败，自动降级为 dense-only: %s",
+            message[:500],
+        )
+        dense_retriever = index.as_retriever(
+            similarity_top_k=top_k,
+            filters=filters,
+            vector_store_query_mode="default",
+        )
+        return dense_retriever.retrieve(query)
 
 
 def _format_hits(nodes: list[Any]) -> str:
@@ -176,8 +203,7 @@ def milvus_similarity_search_with_config(
             "未安装或未启用 RAG 依赖（需 llama-index-core、llama-index-vector-stores-milvus），"
             "无法检索 Milvus。"
         )
-
-    logger.info("milvus_similarity_search_with_config hits=%s", len(nodes))
+    logger.info("milvus_similarity_search_with_config 检索到的结果数量：%s", len(nodes))
     return _format_hits(nodes)
 
 
@@ -213,11 +239,7 @@ async def milvus_similarity_search_text_async(
     knowledge_base_id: int | None = None,
     owner_user_id: int | None = None,
 ) -> str:
-    """异步检索：在**当前运行中的事件循环**内解析嵌入并查库。
-
-    供 LangGraph 等异步上下文中调用的工具使用，避免 ``sync_resolve_embedding_config``
-    使用 ``asyncio.run()`` 与全局 ``async_engine`` 跨循环冲突。
-    """
+    """异步检索：先异步解析嵌入配置；LlamaIndex + 同步嵌入 HTTP 在线程中执行，避免阻塞事件循环。"""
     if owner_user_id is None:
         return "检索需要提供 owner_user_id，以加载该用户在全局设置中的嵌入厂商与模型。"
     from shared.embedding.exceptions import EmbeddingConfigurationError
@@ -230,7 +252,8 @@ async def milvus_similarity_search_text_async(
     except EmbeddingConfigurationError as exc:
         return str(exc)
 
-    return milvus_similarity_search_with_config(
+    return await asyncio.to_thread(
+        milvus_similarity_search_with_config,
         query,
         top_k,
         cfg,
@@ -275,17 +298,18 @@ async def search_in_knowledge_base_formatted_async(
     owner_user_id: int,
     top_k: int = 5,
 ) -> str:
-    """异步路径：在已有 ``AsyncSession`` 内解析嵌入，避免 ``sync_resolve`` 与事件循环冲突。"""
+    """在指定知识库（且归属用户）范围内检索，返回文本片段列表。"""
     from shared.embedding.provider import DatabaseEmbeddingSettingsProvider
 
     provider = DatabaseEmbeddingSettingsProvider()
     cfg = await provider.resolve(session, owner_user_id)
 
-    return milvus_similarity_search_with_config(
+    return await asyncio.to_thread(
+        milvus_similarity_search_with_config,
         query.strip(),
         top_k,
         cfg,
-        db_owner_user_id=owner_user_id, # 知识库的owner_user_id
-        knowledge_base_id=knowledge_base_id, # 知识库的id
-        owner_user_id=owner_user_id, # 知识库的owner_user_id
+        db_owner_user_id=owner_user_id,
+        knowledge_base_id=knowledge_base_id,
+        owner_user_id=owner_user_id,
     )

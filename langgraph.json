@@ -7,8 +7,10 @@
   },
   "graphs": {
     "agent": "./src/agent/core/graph.py:graph",
-    "customer_service": "./src/agent/core/graph_customer_service.py:graph"
+    "customer_service": "./src/agent/core/graph_customer_service.py:graph",
+    "graph_service": "./src/agent/core/graph_service.py:graph"
   },
   "env": ".env",
-  "image_distro": "wolfi"
+  "image_distro": "wolfi",
+  "dockerfile": "Dockerfile.langgraph"
 }

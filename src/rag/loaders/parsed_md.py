@@ -18,8 +18,6 @@ def resolved_parsed_md_path(parsed_md_storage_key: str) -> Path:
 
 def load_parsed_md_documents(parsed_md_storage_key: str):
     """读取中间 Markdown，返回 LlamaIndex ``Document`` 列表.
-
-    依赖 ``llama-index-core``；未安装时请在 worker 环境安装 ``rag`` optional 依赖。
     """
     path = resolved_parsed_md_path(parsed_md_storage_key)
     if not path.is_file():

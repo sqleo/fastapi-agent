@@ -34,11 +34,6 @@ async def knowledge_base_search(
     归属用户由服务端从登录会话注入，模型**不可**指定租户。
     - **不传** ``knowledge_base_id``：在**当前用户下全部知识库**中检索（合并后取最相近片段）。
     - **传入** ``knowledge_base_id``：仅在该知识库已入库的文件片段中检索。
-
-    本工具为 **async**，在 LangGraph 异步循环内解析嵌入，避免与 ``asyncio.run`` 跨循环冲突。
-
-    流式调试：通过 ``get_stream_writer`` 写入 ``custom`` 块，``phase`` 为 ``start`` / ``result`` / ``error``。
-
     Args:
         query: 检索查询（建议与用户问题语义一致，可略作改写）。
         top_k: 返回片段条数，默认 5。

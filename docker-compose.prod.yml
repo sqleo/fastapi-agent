@@ -1,15 +1,13 @@
-# 生产 / 服务器：与 docker-compose.dev.yml 同栈（MySQL、Postgres、Redis、Milvus、kb-ingest），
-# 应用层使用 TCR 镜像，无源码挂载。
-#
-# 前置：docker login ccr.ccs.tencentyun.com
-# 启动：docker compose -f docker-compose.prod.yml up -d
-# 更新：docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
-#
-# 可选环境变量（默认与 scripts/push-tcr.sh 推的地址一致）：
-#   FASTAPI_IMAGE、LANGGRAPH_IMAGE
+version: '3.9'
 
 services:
+  # =============================================
+  # FastAPI 业务服务（生产）
+  # =============================================
   fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
     image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: fastapi-app
     ports:
@@ -17,11 +15,14 @@ services:
     env_file:
       - .env
     environment:
-      - LANGGRAPH_API_URL=${LANGGRAPH_API_URL:-http://langgraph:8000}
+      - LANGGRAPH_API_URL=http://langgraph:8000
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - REDIS_URI=redis://redis:6379/0
       - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
+    volumes:
+      - app_static:/app/static
+    restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
@@ -29,13 +30,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - app_static:/app/static
-    restart: unless-stopped
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
+  # =============================================
+  # 知识库入库 Worker（生产）
+  # =============================================
   kb-ingest-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
     image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: kb-ingest-worker
     env_file:
@@ -46,18 +52,26 @@ services:
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - REDIS_URI=redis://redis:6379/0
     command: python -m rag.worker.kb_ingest
+    volumes:
+      - app_static:/app/static
+    restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - app_static:/app/static
-    restart: unless-stopped
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
+  # =============================================
+  # LangGraph 服务（生产）
+  # =============================================
   langgraph:
+    build:
+      context: .
+      dockerfile: Dockerfile.langgraph
     image: ${LANGGRAPH_IMAGE:-ccr.ccs.tencentyun.com/sqliu/langgraph-agent:latest}
     container_name: langgraph-server
     ports:
@@ -66,7 +80,7 @@ services:
       - .env
     environment:
       - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
-      - REDIS_URI=${REDIS_URI:-redis://redis:6379}
+      - REDIS_URI=redis://redis:6379/0
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
       - MILVUS_DIM=${MILVUS_DIM:-1024}
@@ -77,9 +91,19 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
     networks:
       - app-network
 
+  # =============================================
+  # PostgreSQL（生产）
+  # =============================================
   postgres:
     image: postgres:16-alpine
     container_name: langgraph-postgres
@@ -100,6 +124,9 @@ services:
     networks:
       - app-network
 
+  # =============================================
+  # Redis（生产）
+  # =============================================
   redis:
     image: redis:7-alpine
     container_name: langgraph-redis
@@ -116,6 +143,9 @@ services:
     networks:
       - app-network
 
+  # =============================================
+  # MySQL（生产）
+  # =============================================
   mysql:
     image: mysql:8.0
     container_name: app-mysql
@@ -136,6 +166,9 @@ services:
     networks:
       - app-network
 
+  # =============================================
+  # Milvus 相关服务（生产）
+  # =============================================
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
     container_name: milvus-etcd
@@ -177,8 +210,9 @@ services:
     networks:
       - app-network
 
+  # 升级前请备份 milvusdata_prod；2.4→2.5 见 https://milvus.io/docs/upgrade_milvus.md
   milvus:
-    image: milvusdb/milvus:v2.4.17
+    image: milvusdb/milvus:v2.5.27
     container_name: milvus-standalone
     command: milvus run standalone
     environment:
@@ -203,15 +237,18 @@ services:
     networks:
       - app-network
 
+  # =============================================
+  # Attu（可选）
+  # =============================================
   attu:
-    image: zilliz/attu:v2.4.1
+    image: zilliz/attu:v2.5.12
     container_name: milvus-attu
     profiles:
       - attu
     ports:
       - "8000:3000"
     environment:
-      - MILVUS_URL=milvus:19530
+      MILVUS_URL: milvus:19530
     depends_on:
       milvus:
         condition: service_healthy

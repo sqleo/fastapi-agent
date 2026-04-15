@@ -23,13 +23,47 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 DEAD_LETTER_KEY = "kb:ingest:dead_letter"
+# BRPOP 服务端最长阻塞秒数；客户端 socket 读等待必须大于该值，否则会先触发 TimeoutError
+BRPOP_BLOCK_SEC = 30
+_MIN_SOCKET_TIMEOUT = float(BRPOP_BLOCK_SEC) + 15.0
+
+
+def _redis_client_for_blocking_consumer(redis_url: str):
+    """构造用于长阻塞 BRPOP 的客户端（修正过短的 socket_timeout / URL 里的 timeout）。"""
+    import redis.asyncio as aioredis
+    from redis import RedisError
+    from redis.asyncio.connection import ConnectionPool, parse_url as redis_parse_url
+
+    try:
+        opts = redis_parse_url(redis_url)
+    except (ValueError, RedisError) as e:
+        raise RuntimeError(f"无效的 REDIS_URI: {e}") from e
+    # URL 查询参数 timeout 会进入 kwargs，但 asyncio Connection 不接受该键，需映射为 socket_timeout
+    if "timeout" in opts:
+        t = opts.pop("timeout")
+        opts.setdefault("socket_timeout", t)
+    st = opts.get("socket_timeout")
+    if st is not None and st < _MIN_SOCKET_TIMEOUT:
+        logger.warning(
+            "REDIS_URI 的 socket_timeout=%s 小于 BRPOP(%ss) 所需等待时间，已调整为 %s",
+            st,
+            BRPOP_BLOCK_SEC,
+            _MIN_SOCKET_TIMEOUT,
+        )
+        opts["socket_timeout"] = _MIN_SOCKET_TIMEOUT
+    opts.setdefault("decode_responses", True)
+    pool = ConnectionPool(**opts)
+    return aioredis.Redis(connection_pool=pool)
 
 
 async def _mark_failed(kb_file_id: int, error: str) -> None:
     """将 pipeline_status 标记为 FAILED（最后兜底，避免永远 queued）。"""
     try:
+        from models.KnowledgeBaseModel import (
+            KbFilePipelineStatus,
+            KnowledgeBaseFileModel,
+        )
         from utils.sql_db import async_session
-        from models.KnowledgeBaseModel import KbFilePipelineStatus, KnowledgeBaseFileModel
 
         async with async_session() as session:
             kb_file = await session.get(KnowledgeBaseFileModel, kb_file_id)
@@ -42,16 +76,30 @@ async def _mark_failed(kb_file_id: int, error: str) -> None:
 
 
 async def _consume_loop(redis_url: str) -> None:
-    import redis.asyncio as aioredis
+    from redis import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
 
-    from utils.sql_db import async_session
     from rag.indexing.jobs import run_kb_file_ingest_job
     from rag.queue.ingest_queue import KB_INGEST_QUEUE_KEY
+    from utils.sql_db import async_session
 
-    client = aioredis.from_url(redis_url, decode_responses=True)
+    client = _redis_client_for_blocking_consumer(redis_url)
     try:
         while True:
-            item = await client.brpop(KB_INGEST_QUEUE_KEY, timeout=30)
+            try:
+                item = await client.brpop(KB_INGEST_QUEUE_KEY, timeout=BRPOP_BLOCK_SEC)
+            except (RedisConnectionError, RedisTimeoutError, OSError, asyncio.TimeoutError) as exc:
+                logger.warning(
+                    "Redis 阻塞读失败，10s 后重连: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+                await asyncio.sleep(10)
+                try:
+                    await client.aclose()
+                except Exception:
+                    logger.exception("关闭旧 Redis 连接时异常（可忽略）")
+                client = _redis_client_for_blocking_consumer(redis_url)
+                continue
             if item is None:
                 continue
             _, raw = item
@@ -79,14 +127,25 @@ async def _consume_loop(redis_url: str) -> None:
                 logger.exception(
                     "worker 未预期异常 kb_file_id=%s retry=%s", kb_file_id, retry,
                 )
-                if retry < MAX_RETRIES:
-                    job["retry"] = retry + 1
-                    await client.lpush(KB_INGEST_QUEUE_KEY, json.dumps(job))
-                    logger.info("任务重新入队 kb_file_id=%s retry=%s", kb_file_id, retry + 1)
-                else:
-                    await client.lpush(DEAD_LETTER_KEY, raw)
-                    await _mark_failed(kb_file_id, f"重试 {MAX_RETRIES} 次后仍失败: {exc}")
-                    logger.error("任务进入死信队列 kb_file_id=%s", kb_file_id)
+                try:
+                    if retry < MAX_RETRIES:
+                        job["retry"] = retry + 1
+                        await client.lpush(KB_INGEST_QUEUE_KEY, json.dumps(job))
+                        logger.info("任务重新入队 kb_file_id=%s retry=%s", kb_file_id, retry + 1)
+                    else:
+                        await client.lpush(DEAD_LETTER_KEY, raw)
+                        await _mark_failed(kb_file_id, f"重试 {MAX_RETRIES} 次后仍失败: {exc}")
+                        logger.error("任务进入死信队列 kb_file_id=%s", kb_file_id)
+                except (RedisConnectionError, RedisTimeoutError, OSError, asyncio.TimeoutError):
+                    logger.exception(
+                        "Redis 写入失败 kb_file_id=%s，将重连后由重试/死信逻辑再处理",
+                        kb_file_id,
+                    )
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        pass
+                    client = _redis_client_for_blocking_consumer(redis_url)
     finally:
         await client.aclose()
 

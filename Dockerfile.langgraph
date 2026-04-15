@@ -1,0 +1,38 @@
+# 使用官方 LangGraph 推荐的基础镜像（或让 CLI 自动生成）
+FROM python:3.13-slim
+
+# 安装 uv（和你 FastAPI 保持一致的依赖管理工具）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+ENV PYTHONPATH=/app/src
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+
+# 复制依赖文件
+COPY pyproject.toml uv.lock ./
+
+# 安装依赖（不安装项目本身，先缓存）
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
+
+# 复制源代码
+COPY langgraph.json ./
+COPY configs/ ./configs/
+COPY src/ ./src/
+
+# 完整安装（包含项目）
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# LangGraph 需要的额外准备（如果有静态文件等）
+RUN mkdir -p static
+
+# 与 compose 8123:8000、健康检查 localhost:8000 一致
+EXPOSE 8000
+
+# LangGraph CLI 通常会覆盖 CMD，这里可以留空或给默认
+CMD ["langgraph", "dev", "--host", "0.0.0.0", "--port", "8000"]

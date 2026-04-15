@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.LlmGlobalSettingModel import LlmGlobalSettingModel
 from models.LlmVendorModel import LlmVendorModel
 from services.controllers.llm_global_setting_controller import get_global_setting_owned
 from shared.embedding.config import FIXED_EMBEDDING_DIMENSION, EmbeddingConfig
@@ -23,7 +22,7 @@ class EmbeddingSettingsProvider(ABC):
 
 
 class DatabaseEmbeddingSettingsProvider(EmbeddingSettingsProvider):
-    """主路径：``llm_global_setting.embedding_*`` + ``llm_vendor``（base_url / api_key）。"""
+    """嵌入配置解析：从数据库中获取嵌入厂商和模型。返回EmbeddingConfig对象。"""
 
     async def resolve(self, session: AsyncSession, owner_user_id: int) -> EmbeddingConfig:
         settings = await get_global_setting_owned(session, owner_user_id=owner_user_id)
@@ -33,7 +32,7 @@ class DatabaseEmbeddingSettingsProvider(EmbeddingSettingsProvider):
             raise EmbeddingConfigurationError(
                 "未配置嵌入模型：请在全局设置中填写 embedding_vendor_id 与 embedding_model",
             )
-
+        # 查询嵌入厂商
         vstmt = select(LlmVendorModel).where(
             LlmVendorModel.id == int(vid),
             LlmVendorModel.owner_user_id == owner_user_id,

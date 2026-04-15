@@ -50,13 +50,20 @@ LANGGRAPH_API_URL = os.getenv("LANGGRAPH_API_URL", "http://localhost:8123")
 
 
 def _agent_stream_modes() -> list[str]:
-    """LangGraph ``runs.stream`` 的 ``stream_mode`` 列表，逗号分隔，见官方 StreamMode。"""
+    """LangGraph ``runs.stream`` 的 ``stream_mode`` 列表，逗号分隔"""
     raw = os.getenv(
         "LANGGRAPH_AGENT_STREAM_MODES",
         "messages-tuple,values,updates,custom",
     ).strip()
     modes = [x.strip() for x in raw.split(",") if x.strip()]
     return modes or ["values", "updates", "custom"]
+
+
+def _agent_stream_subgraphs() -> bool:
+    """是否订阅子图流事件。智能客服等「图内嵌 create_agent」场景下，工具里 ``get_stream_writer`` 的
+    ``custom``"""
+    raw = (os.getenv("LANGGRAPH_STREAM_SUBGRAPHS") or "true").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 class ChatRequest(BaseModel):
@@ -240,11 +247,24 @@ def _internal_tool_names() -> frozenset[str]:
     return hidden_from_client_tool_names()
 
 
+def _stream_event_root(ev: str) -> str:
+    """LangGraph 在 ``stream_subgraphs=true`` 时会把 SSE ``event`` 写成 ``messages|rag_agent:<ns>`` 等形式；
+    与顶层 ``messages`` 同属一类，取 ``|`` 前一段即可与 ``_transform_stream_part`` 逻辑对齐。"""
+    return str(ev).split("|", 1)[0].strip().lower()
+
+
 def _normalize_custom_stream_payload(raw_data: Any) -> dict[str, Any] | None:
     """解析 ``stream_mode`` 含 ``custom`` 时的 ``raw``（可能是 dict 或 tuple）。"""
     if isinstance(raw_data, dict):
         return raw_data
-    if isinstance(raw_data, (list, tuple)) and raw_data:
+    if isinstance(raw_data, (list, tuple)) and len(raw_data) >= 2:
+        # (mode, payload) 或 (namespace..., mode, payload)
+        if str(raw_data[0]).lower() == "custom" and isinstance(raw_data[1], dict):
+            return raw_data[1]
+        if len(raw_data) >= 3 and str(raw_data[-2]).lower() == "custom":
+            last = raw_data[-1]
+            if isinstance(last, dict):
+                return last
         last = raw_data[-1]
         if isinstance(last, dict):
             return last
@@ -252,20 +272,16 @@ def _normalize_custom_stream_payload(raw_data: Any) -> dict[str, Any] | None:
 
 
 async def _transform_stream_part(ev: str, raw_data: Any):
-    """清洗 LangGraph 原始流数据，只产出前端需要的精简包。
-
-    对 ``hidden_from_client`` 标记的基础工具：不推送「调用工具」与 reference，避免暴露内部记忆流程。
-    当 ``ev`` 为 ``custom`` 时：转发工具内 ``get_stream_writer`` 写入的块（如 ``knowledge_base_search``）。
-    """
-    if str(ev).lower() == "custom":
+    """清洗 LangGraph 原始流数据，只产出前端需要的精简包。"""
+    ev_root = _stream_event_root(ev)
+    if ev_root == "custom":
         payload = _normalize_custom_stream_payload(raw_data)
         if payload is not None:
             yield {"type": "custom", "payload": payload}
         return
 
-    if ev != "messages" or not isinstance(raw_data, list) or not raw_data:
+    if ev_root not in ("messages", "messages-tuple") or not isinstance(raw_data, list) or not raw_data:
         return
-
     msg = raw_data[0]
     if not isinstance(msg, dict):
         return
@@ -330,12 +346,18 @@ async def chat_stream(
     )
 
     stream_modes = _agent_stream_modes()
+    stream_subgraphs = _agent_stream_subgraphs()
 
     async def event_generator():
         event_count = 0
         try:
             yield _sse_json(
-                {"type": "start", "thread_id": tid, "stream_modes": stream_modes}
+                {
+                    "type": "start",
+                    "thread_id": tid,
+                    "stream_modes": stream_modes,
+                    "stream_subgraphs": stream_subgraphs,
+                }
             )
             async for part in client.runs.stream(
                 tid,
@@ -343,6 +365,7 @@ async def chat_stream(
                 input={"messages": [{"role": "user", "content": req.message}]},
                 config=config,
                 stream_mode=stream_modes,
+                stream_subgraphs=stream_subgraphs,
             ):
                 event_count += 1
                 ev = getattr(part, "event", "")
