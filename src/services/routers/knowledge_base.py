@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, status
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
 
 from schemas.file_management_schema import FileUploadItem
 from schemas.knowledge_base_schema import (
     KnowledgeBaseCreateRequest,
-    KnowledgeBaseFileIndexTriggerResponse,
     KnowledgeBaseFileListItem,
     KnowledgeBaseFileListResponse,
     KnowledgeBaseFileOperateRequest,
@@ -20,7 +17,6 @@ from schemas.knowledge_base_schema import (
 from services.controllers.knowledge_base_controller import (
     add_files_to_knowledge_base_owned,
     create_knowledge_base_owned,
-    enqueue_kb_file_indexing_owned,
     list_knowledge_base_files_owned,
     list_knowledge_bases_owned,
     remove_files_from_knowledge_base_owned,
@@ -164,38 +160,6 @@ async def add_files_to_knowledge_base(
         skipped_file_ids=skipped,
     )
     return ok(payload, message="操作成功")
-
-
-@router.post(
-    "/{kb_id}/files/index",
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="索引入队（Redis 异步执行）",
-)
-async def enqueue_kb_file_indexing(
-    kb_id: int,
-    body: KnowledgeBaseFileOperateRequest,
-    current_user: CurrentUserDeps,
-    session: AsyncSqlSessionDeps,
-) -> JSONResponse:
-    """将入库任务写入 Redis，由独立 worker 消费；成功项 ``pipeline_status`` 为 ``queued``。
-
-    需配置 ``REDIS_URI``；文件需已有 ``parsed_md_storage_key``。worker 见 ``python -m rag.worker.kb_ingest``。
-    """
-    results = await enqueue_kb_file_indexing_owned(
-        session,
-        owner_user_id=current_user.id,
-        kb_id=kb_id,
-        file_ids=body.file_ids,
-    )
-    payload = KnowledgeBaseFileIndexTriggerResponse(
-        knowledge_base_id=kb_id,
-        results=results,
-    )
-    body_ok = ok(payload, message="已入队")
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content=jsonable_encoder(body_ok.model_dump()),
-    )
 
 
 @router.get(

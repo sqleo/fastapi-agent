@@ -1,8 +1,7 @@
-"""知识库业务逻辑：创建库、文件加入/移出、库内文件列表、触发布式入库."""
+"""知识库业务逻辑：创建库、文件加入/移出、库内文件列表."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from fastapi import HTTPException, status
@@ -10,20 +9,12 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from configs.env import env_config
 from models.FileManagementModel import FileAssetModel, FileParseStatus
 from models.KnowledgeBaseModel import (
     KbFilePipelineStatus,
     KnowledgeBaseFileModel,
     KnowledgeBaseModel,
 )
-from rag.queue.ingest_queue import push_kb_ingest_jobs_batch
-from rag.query.search import search_in_knowledge_base_formatted_async
-from rag.stores.milvus_delete import delete_kb_file_vectors_sync
-from schemas.knowledge_base_schema import KbFileIndexItemResult
-from shared.embedding.config import FIXED_EMBEDDING_DIMENSION
-from shared.embedding.exceptions import EmbeddingConfigurationError
-from shared.embedding.provider import DatabaseEmbeddingSettingsProvider
 
 logger = logging.getLogger(__name__)
 
@@ -170,31 +161,6 @@ async def remove_files_from_knowledge_base_owned(
     rows = list(rows_res.scalars().all())
     hit_ids = {int(x.file_id) for x in rows}
 
-    if rows:
-        provider = DatabaseEmbeddingSettingsProvider()
-        try:
-            emb_cfg = await provider.resolve(session, owner_user_id)
-            embed_dim = int(emb_cfg.dimensions)
-        except EmbeddingConfigurationError:
-            embed_dim = FIXED_EMBEDDING_DIMENSION
-
-        for row in rows:
-            try:
-                await asyncio.to_thread(
-                    delete_kb_file_vectors_sync,
-                    kb_file_link_id=int(row.id),
-                    dim=embed_dim,
-                )
-            except Exception as exc:
-                logger.exception(
-                    "移出知识库前删除 Milvus 向量失败 kb_file_id=%s",
-                    row.id,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=f"向量库删除失败，文件未从知识库移出: {exc}"[:2000],
-                ) from exc
-
     for row in rows:
         await session.delete(row)
     await session.commit()
@@ -258,112 +224,15 @@ async def search_knowledge_base_owned(
     query: str,
     top_k: int,
 ) -> str:
-    """校验知识库归属后，在库内向量检索（见 ``rag.query.search``）。"""
-    await _get_owned_kb_or_404(session, owner_user_id=owner_user_id, kb_id=kb_id)
-
-    try:
-        return await search_in_knowledge_base_formatted_async(
-            session,
-            query.strip(),
-            knowledge_base_id=kb_id,
-            owner_user_id=owner_user_id,
-            top_k=top_k,
-        )
-    except EmbeddingConfigurationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
-
-async def enqueue_kb_file_indexing_owned(
-    session: AsyncSession,
-    *,
-    owner_user_id: int,
-    kb_id: int,
-    file_ids: list[int],
-) -> list[KbFileIndexItemResult]:
-    """将指定知识库下文件的入库任务写入 Redis，并把 ``pipeline_status`` 置为 ``queued``。"""
-    await _get_owned_kb_or_404(session, owner_user_id=owner_user_id, kb_id=kb_id)
-
-    redis_url = (env_config.redis_uri or "").strip()
-    if not redis_url:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="未配置 REDIS_URI，无法入队索引入库",
-        )
-
-    uniq_ids = list(dict.fromkeys(file_ids))
-
-    stmt = (
-        select(KnowledgeBaseFileModel, FileAssetModel)
-        .join(FileAssetModel, FileAssetModel.id == KnowledgeBaseFileModel.file_id)
-        .where(
-            KnowledgeBaseFileModel.owner_user_id == owner_user_id,
-            KnowledgeBaseFileModel.knowledge_base_id == kb_id,
-            KnowledgeBaseFileModel.file_id.in_(uniq_ids),
-            FileAssetModel.is_deleted.is_(False),
-        )
+    """知识库内向量检索（待在 llamarag 中重新实现）。"""
+    logger.debug(
+        "search_knowledge_base_owned stub kb_id=%s top_k=%s q=%r",
+        kb_id,
+        top_k,
+        query[:200] if query else "",
     )
-    res = await session.execute(stmt)
-    rows_by_fid: dict[int, tuple[KnowledgeBaseFileModel, FileAssetModel]] = {
-        int(r[0].file_id): (r[0], r[1]) for r in res.all()
-    }
-
-    out: list[KbFileIndexItemResult] = []
-    to_queue: list[dict[str, int]] = []
-
-    for fid in uniq_ids:
-        pair = rows_by_fid.get(fid)
-        if pair is None:
-            out.append(KbFileIndexItemResult(
-                file_id=fid, kb_file_id=None, ok=False,
-                pipeline_status="not_in_kb", skipped_reason="not_in_kb",
-            ))
-            continue
-
-        kb_file, asset = pair
-        parsed_key = (asset.parsed_md_storage_key or "").strip()
-        if not parsed_key:
-            ps = kb_file.pipeline_status
-            out.append(KbFileIndexItemResult(
-                file_id=fid, kb_file_id=int(kb_file.id), ok=False,
-                pipeline_status=ps.value if hasattr(ps, "value") else str(ps),
-                skipped_reason="no_parsed_md",
-            ))
-            continue
-
-        kb_file.pipeline_status = KbFilePipelineStatus.QUEUED
-        kb_file.pipeline_error = None
-        to_queue.append({"kb_file_id": int(kb_file.id), "owner_user_id": owner_user_id})
-        out.append(KbFileIndexItemResult(
-            file_id=fid, kb_file_id=int(kb_file.id), ok=True,
-            pipeline_status=KbFilePipelineStatus.QUEUED.value,
-        ))
-
-    if to_queue:
-        await session.commit()
-        try:
-            await push_kb_ingest_jobs_batch(redis_url, to_queue)
-        except Exception as exc:
-            logger.exception("Redis 批量入队失败")
-            queued_kids = {item["kb_file_id"] for item in to_queue}
-            for item in to_queue:
-                kid = item["kb_file_id"]
-                kb_file = await session.get(KnowledgeBaseFileModel, kid)
-                if kb_file is not None:
-                    kb_file.pipeline_status = KbFilePipelineStatus.FAILED
-                    kb_file.pipeline_error = f"入队失败: {exc}"[:2000]
-            await session.commit()
-            err_msg = str(exc)[:2000]
-            out = [
-                KbFileIndexItemResult(
-                    file_id=r.file_id, kb_file_id=r.kb_file_id,
-                    ok=False,
-                    pipeline_status=KbFilePipelineStatus.FAILED.value,
-                    error=err_msg,
-                ) if r.ok and r.kb_file_id in queued_kids else r
-                for r in out
-            ]
-
-    return out
+    await _get_owned_kb_or_404(session, owner_user_id=owner_user_id, kb_id=kb_id)
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="知识库向量检索尚未实现，请在 llamarag 接入向量存储后重试。",
+    )

@@ -28,6 +28,7 @@ class LlmVendorModel(BasicModel, table=True):
 
     __tablename__ = "llm_vendor"
 
+    
     # 多租户归属：该厂商配置属于哪个用户/租户
     owner_user_id: int = Field(
         foreign_key="user.id",

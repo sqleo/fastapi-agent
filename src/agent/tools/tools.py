@@ -7,7 +7,6 @@ from langchain_core.tools import tool
 from agent.memory.langmem import LANGMEM_TOOLS
 from agent.tools.decorators import hidden_from_client
 from agent.tools.runtime_user import langgraph_runtime_user_id
-from rag.query.search import milvus_similarity_search_text_async
 
 
 @tool
@@ -32,11 +31,9 @@ async def milvus_search(
             "检索失败：无法解析当前登录用户上下文。"
             "请确认通过已登录会话调用 Agent，且 LangGraph 配置中包含 user_id。"
         )
-    return await milvus_similarity_search_text_async(
-        query,
-        top_k=top_k,
-        knowledge_base_id=knowledge_base_id,
-        owner_user_id=owner_user_id,
+    return (
+        "知识库向量检索尚未在服务端实现；"
+        "接入 llamarag 向量存储后将恢复 Milvus 语义检索能力。"
     )
 
 

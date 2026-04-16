@@ -34,10 +34,14 @@ dependencies = [
     "redis>=5.0.0",
     "aiofiles>=24.1.0",
     "llama-index-core>=0.12.0",
+    "llama-index-readers-file>=0.6.0",
     "llama-index-vector-stores-milvus>=0.4.0",
     "pymilvus>=2.5.0",
     "pyyaml>=6.0",
     "jinja2>=3.1.4",
+    "llama-index-embeddings-huggingface>=0.7.0",
+    "taskiq>=0.11.0",
+    "taskiq-redis>=1.0.0",
 ]
 
 
@@ -58,8 +62,11 @@ packages = [
     "utils",
     "models",
     "monitor",
-    "rag",
-    "parsing",
+    "llamarag",
+    "llamarag.create_node",
+    "llamarag.ingestion",
+    "llamarag.queue",
+    "llamarag.worker",
 ]
 [tool.setuptools.package-dir]
 "langgraph.templates.agent" = "src/agent"
@@ -70,8 +77,11 @@ packages = [
 "utils" = "src/utils"
 "models" = "src/models"
 "monitor" = "src/monitor"
-"rag" = "src/rag"
-"parsing" = "src/parsing"
+"llamarag" = "src/llamarag"
+"llamarag.create_node" = "src/llamarag/create_node"
+"llamarag.ingestion" = "src/llamarag/ingestion"
+"llamarag.queue" = "src/llamarag/queue"
+"llamarag.worker" = "src/llamarag/worker"
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 
@@ -100,7 +110,8 @@ lint.ignore = [
 "src/schemas/**/*.py" = ["D415"]
 "src/services/**/*.py" = ["D415"]
 "src/utils/**/*.py" = ["D415"]
-"src/rag/**/*.py" = ["D415"]
+"src/shared/embedding/http_openai.py" = ["D415"]
+"src/llamarag/**/*.py" = ["D415"]
 "src/agent/tools/**/*.py" = ["D415"]
 "src/utils/llm_init.py" = ["D100"]
 "src/agent/memory_turns.py" = ["D415", "D103"]
@@ -114,11 +125,6 @@ convention = "google"
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
 
-# 让 Pyright / Basedpyright 解析到 uv 的 .venv（含 redis 等第三方包），避免 reportMissingImports
-[tool.pyright]
-venvPath = "."
-venv = ".venv"
-extraPaths = ["src"]
 
 [tool.basedpyright]
 venvPath = "."

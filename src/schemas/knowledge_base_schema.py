@@ -79,34 +79,6 @@ class KnowledgeBaseFileListResponse(BaseModel):
     items: list[KnowledgeBaseFileListItem] = Field(default_factory=list, description="文件列表")
 
 
-class KbFileIndexItemResult(BaseModel):
-    """单次触发布式入库时，单个文件的执行结果."""
-
-    file_id: int = Field(..., description="文件 id")
-    kb_file_id: int | None = Field(
-        default=None,
-        description="knowledge_base_file 主键 id；文件不在该知识库时为 null",
-    )
-    ok: bool = Field(..., description="本条是否成功完成向量写入（跳过时为 False）")
-    pipeline_status: str = Field(
-        ...,
-        description="执行后的 pipeline_status（跳过则保持原状态，见 skipped_reason）",
-    )
-    chunk_count: int | None = Field(default=None, description="成功时写入的 chunk 数")
-    error: str | None = Field(default=None, description="失败时的错误摘要")
-    skipped_reason: str | None = Field(
-        default=None,
-        description="未执行入库的原因：not_in_kb / no_parsed_md 等",
-    )
-
-
-class KnowledgeBaseFileIndexTriggerResponse(BaseModel):
-    """批量触发布式入库的响应."""
-
-    knowledge_base_id: int = Field(..., description="知识库 id")
-    results: list[KbFileIndexItemResult] = Field(default_factory=list, description="每个文件的处理结果")
-
-
 class KnowledgeBaseSearchResponse(BaseModel):
     """知识库内向量检索结果（格式化文本）."""
 

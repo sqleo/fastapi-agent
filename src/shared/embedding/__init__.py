@@ -2,6 +2,7 @@
 
 from shared.embedding.config import FIXED_EMBEDDING_DIMENSION, EmbeddingConfig
 from shared.embedding.exceptions import EmbeddingConfigurationError
+from shared.embedding.http_openai import HttpOpenAIEmbeddings
 from shared.embedding.provider import (
     DatabaseEmbeddingSettingsProvider,
     EmbeddingFallbackProvider,
@@ -16,5 +17,6 @@ __all__ = [
     "EmbeddingConfigurationError",
     "EmbeddingFallbackProvider",
     "EmbeddingSettingsProvider",
+    "HttpOpenAIEmbeddings",
     "sync_resolve_embedding_config",
 ]

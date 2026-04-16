@@ -16,8 +16,8 @@ from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langmem import create_manage_memory_tool, create_search_memory_tool
 
-from rag.embedding.http_openai import HttpOpenAIEmbeddings
 from shared.embedding.config import FIXED_EMBEDDING_DIMENSION
+from shared.embedding.http_openai import HttpOpenAIEmbeddings
 from shared.embedding.sync_resolve import sync_resolve_embedding_config
 
 logger = logging.getLogger("agent.memory.langmem")

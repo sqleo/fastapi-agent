@@ -18,6 +18,7 @@ class UserAgentToolSettingsModel(BasicModel, table=True):
 
     __tablename__ = "user_agent_tool_settings"
 
+    
     user_id: int = Field(
         foreign_key="user.id",
         unique=True,

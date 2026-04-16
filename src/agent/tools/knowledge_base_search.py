@@ -7,7 +7,6 @@ from typing import Any
 from langchain_core.tools import tool
 
 from agent.tools.runtime_user import langgraph_runtime_user_id
-from rag.query.search import milvus_similarity_search_text_async
 
 
 def _emit_custom_stream(payload: dict[str, Any]) -> None:
@@ -64,11 +63,9 @@ async def knowledge_base_search(
             "owner_user_id": owner_user_id,
         }
     )
-    out = await milvus_similarity_search_text_async(
-        query,
-        top_k=top_k,
-        knowledge_base_id=knowledge_base_id,
-        owner_user_id=owner_user_id,
+    out = (
+        "知识库向量检索尚未在服务端实现；"
+        "接入 llamarag 向量存储后将恢复语义检索能力。"
     )
     _emit_custom_stream(
         {

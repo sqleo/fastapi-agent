@@ -38,31 +38,28 @@ services:
       - app-network
 
   # =============================================
-  # 知识库入库 Worker
+  # LlamaRAG 解析 Worker（Taskiq，队列 llamarag:parse）
   # =============================================
-  kb-ingest-worker:
+  llamarag-parse-worker:
     build:
       context: .
       dockerfile: Dockerfile.fastapi
-    container_name: kb-ingest-worker-dev
+    container_name: llamarag-parse-worker-dev
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
-      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - REDIS_URI=redis://redis:6379/0
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs
       - ./static:/app/static
-    command: python -m rag.worker.kb_ingest
+    command: taskiq worker llamarag.worker.taskiq_tasks:broker
     depends_on:
       mysql:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      milvus:
         condition: service_healthy
     networks:
       - app-network

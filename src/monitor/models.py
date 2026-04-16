@@ -23,7 +23,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 
 def _utcnow() -> datetime:
@@ -47,7 +47,8 @@ class RequestLog(MonitorBase):
                           （cache_tokens_saved 与 input_tokens_cache_hit 同义，保留兼容）
     """
 
-    __tablename__ = "request_log"
+    __tablename__:str = "request_log"
+
     __table_args__ = (
         Index("idx_req_session", "session_id"),
         Index("idx_req_model_time", "model", "created_at"),
@@ -101,7 +102,8 @@ class ChatSession(MonitorBase):
         - 会话级汇总:  total_requests / total_tokens 按会话累加
     """
 
-    __tablename__ = "session"
+    __tablename__:str = "session"
+
     __table_args__ = (
         Index("idx_session_status", "status", "last_active_at"),
         Index("idx_session_user", "user_id"),
@@ -137,7 +139,8 @@ class Evaluation(MonitorBase):
         - 召回率 / 精确率:             RAG 检索质量（recall / precision）
     """
 
-    __tablename__ = "evaluation"
+    __tablename__:str = "evaluation"
+
     __table_args__ = (
         Index("idx_eval_request", "request_id"),
         Index("idx_eval_time", "evaluated_at"),
