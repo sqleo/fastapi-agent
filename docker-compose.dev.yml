@@ -17,7 +17,7 @@ services:
       - LANGGRAPH_API_URL=http://langgraph:8000
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
-      - REDIS_URI=redis://redis:6379/0
+      - REDIS_URI=redis://redis:6379/1
       - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
       - WATCHFILES_FORCE_POLLING=true
     volumes:
@@ -50,7 +50,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
-      - REDIS_URI=redis://redis:6379/0
+      # 与 FastAPI 一致；勿仅用 .env 的 localhost，否则容器内会连自身 19530，MilvusVectorStore 长时间阻塞，队列一直 queued
+      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      # LlamaIndex docstore；表在 schema llamaindex，可与 POSTGRES_DB 同一库不同 schema（勿填 localhost）
+      - LLAMAINDEX_POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
+      - REDIS_URI=redis://redis:6379/1
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs
@@ -59,7 +63,11 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       redis:
+        condition: service_healthy
+      milvus:
         condition: service_healthy
     networks:
       - app-network

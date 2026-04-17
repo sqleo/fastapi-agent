@@ -16,11 +16,29 @@ class ConfigSettings(BaseSettings):
         extra="ignore",
     )
 
+    # ---------- Milvus（向量库；LlamaIndex MilvusVectorStore）----------
+    # 本机直连默认 localhost；Docker / K8s 中应设为服务名，如 http://milvus:19530（与 docker-compose 中 MILVUS_URI 一致）
+    milvus_uri: str = Field(
+        default="http://localhost:19530",
+        validation_alias=AliasChoices("MILVUS_URI"),
+        description="Milvus gRPC 代理地址，如 http://host:19530",
+    )
+
     # ---------- Redis（入库队列等）----------
     redis_uri: str = Field(
         default="",
         validation_alias=AliasChoices("REDIS_URI"),
         description="Redis 连接串，如 redis://localhost:6379/0；索引入队依赖",
+    )
+
+    # ---------- LlamaIndex（docstore / index_store；与 LangGraph 隔离）----------
+    llamaindex_postgres_uri: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLAMAINDEX_POSTGRES_URI"),
+        description=(
+            "仅用于 LlamaIndex PostgresDocumentStore / PostgresIndexStore；"
+            "勿与 LangGraph checkpoint / LangMem 共用同一库（应另建库或使用独立 schema）"
+        ),
     )
 
     # ---------- JWT（登录）----------

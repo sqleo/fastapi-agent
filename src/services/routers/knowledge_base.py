@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, status
 
+from models.FileManagementModel import FileAssetModel
 from schemas.file_management_schema import FileUploadItem
 from schemas.knowledge_base_schema import (
     KnowledgeBaseCreateRequest,
+    KnowledgeBaseFileIndexResponse,
     KnowledgeBaseFileListItem,
     KnowledgeBaseFileListResponse,
     KnowledgeBaseFileOperateRequest,
@@ -17,6 +19,7 @@ from schemas.knowledge_base_schema import (
 from services.controllers.knowledge_base_controller import (
     add_files_to_knowledge_base_owned,
     create_knowledge_base_owned,
+    enqueue_kb_file_index_owned,
     list_knowledge_base_files_owned,
     list_knowledge_bases_owned,
     remove_files_from_knowledge_base_owned,
@@ -160,6 +163,49 @@ async def add_files_to_knowledge_base(
         skipped_file_ids=skipped,
     )
     return ok(payload, message="操作成功")
+
+
+@router.post(
+    "/{kb_id}/files/{file_id}/index",
+    response_model=SuccessResponse[KnowledgeBaseFileIndexResponse],
+    summary="解析产物入库（分块写入向量库）",
+)
+async def index_file_into_knowledge_base(
+    kb_id: int,
+    file_id: int,
+    current_user: CurrentUserDeps,
+    session: AsyncSqlSessionDeps,
+) -> SuccessResponse[KnowledgeBaseFileIndexResponse]:
+    """将已解析的中间 Markdown 经 Taskiq+Redis 异步入库（``llamarag:parse`` 队列，需 worker）。"""
+    kb_file = await enqueue_kb_file_index_owned(
+        session,
+        owner_user_id=current_user.id,
+        kb_id=kb_id,
+        file_id=file_id,
+    )
+    ps = kb_file.pipeline_status
+    pipeline_status = ps.value if hasattr(ps, "value") else str(ps)
+    asset = await session.get(FileAssetModel, file_id)
+    semver = (
+        format_semver(
+            int(asset.semver_major),
+            int(asset.semver_minor),
+            int(asset.semver_patch),
+        )
+        if asset
+        else format_semver(0, 0, 0)
+    )
+    payload = KnowledgeBaseFileIndexResponse(
+        knowledge_base_id=kb_id,
+        file_id=file_id,
+        kb_file_id=int(kb_file.id),
+        pipeline_status=pipeline_status,
+        chunk_count=int(kb_file.chunk_count or 0),
+        indexed_at=kb_file.indexed_at,
+        content_semver=semver,
+        pipeline_error=kb_file.pipeline_error,
+    )
+    return ok(payload, message="已入队，等待 Worker 消费 Redis 任务")
 
 
 @router.get(

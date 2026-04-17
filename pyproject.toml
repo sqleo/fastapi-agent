@@ -42,6 +42,8 @@ dependencies = [
     "llama-index-embeddings-huggingface>=0.7.0",
     "taskiq>=0.11.0",
     "taskiq-redis>=1.0.0",
+    "llama-index-storage-docstore-postgres>=0.5.0",
+    "llama-index-storage-index-store-postgres>=0.5.0",
 ]
 
 

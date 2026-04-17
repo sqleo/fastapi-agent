@@ -86,3 +86,16 @@ class KnowledgeBaseSearchResponse(BaseModel):
     query: str = Field(..., description="检索 query")
     top_k: int = Field(..., description="请求条数")
     result_text: str = Field(..., description="格式化命中片段")
+
+
+class KnowledgeBaseFileIndexResponse(BaseModel):
+    """单文件入库（分块写入向量库）结果."""
+
+    knowledge_base_id: int = Field(..., description="知识库 id")
+    file_id: int = Field(..., description="文件 id")
+    kb_file_id: int = Field(..., description="knowledge_base_file 关联主键 id")
+    pipeline_status: str = Field(..., description="入库后流水线状态，成功为 indexed")
+    chunk_count: int = Field(..., ge=0, description="写入向量库的文本块数量")
+    indexed_at: datetime | None = Field(default=None, description="本次成功入库时间")
+    content_semver: str = Field(..., description="入库时快照的文件内容语义版本")
+    pipeline_error: str | None = Field(default=None, description="失败时原因；成功为 null")

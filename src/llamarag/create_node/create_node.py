@@ -8,8 +8,7 @@ from collections.abc import Sequence
 from llama_index.core import Document
 from llama_index.core.schema import BaseNode
 
-from llamarag.ingestion_pipeline.pipeline import ingestion_pipeline
-
+from llamarag.ingestion.pipeline import ingestion_pipeline
 
 logger = logging.getLogger(__name__)
 
