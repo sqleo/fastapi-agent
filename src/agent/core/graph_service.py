@@ -22,7 +22,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
-from agent.memory.langmem import get_langgraph_store
+from agent.memory.graph_checkpoint import get_graph_checkpointer
 from agent.tools.knowledge_base_search import knowledge_base_search
 from utils.llm_init import create_llm
 from utils.sql_db import async_session
@@ -31,6 +31,7 @@ logger = logging.getLogger("agent.graph_service")
 
 _NO_ANSWER_TEXT = "根据提供的资料，无法找到相关答案。"
 _DIRECT_REPLY = "您需要了解产品与服务相关的问题吗？请告诉我具体问题～"
+_NON_PRODUCT_REPLY = "抱歉，我只能回答关于产品和服务相关的问题。如果您有相关疑问，请告诉我！"
 
 _ROUTER_SYSTEM = """你是路由分类器：判断用户这句话是否需要从知识库检索「产品、服务、规格、文档、功能」等才能回答。
 
@@ -67,7 +68,6 @@ class ServiceState(TypedDict):
 def _last_user_text(state: ServiceState) -> str:
     """取最近一条用户话；兼容 LangGraph Studio 等入口里仍为 ``dict`` 的 message。"""
     raw = state.get("messages") or []
-    print("取最近一条用户话：", state)
     if not raw:
         return ""
     if any(isinstance(m, dict) for m in raw):
@@ -184,10 +184,10 @@ async def _run_router(llm: Any, text: str, parent: RunnableConfig | None) -> boo
 async def classify_node(state: ServiceState, config: RunnableConfig) -> dict[str, Any]:
     """写出 ``next_route``，由 ``add_conditional_edges`` 决定去检索或结束。"""
     text = _last_user_text(state)
-  
+
     if not text:
         return {
-            "messages": [AIMessage(content=_NO_ANSWER_TEXT)],
+            "messages": [AIMessage(content=_DIRECT_REPLY)],
             "next_route": "end",
         }
 
@@ -196,7 +196,7 @@ async def classify_node(state: ServiceState, config: RunnableConfig) -> dict[str
         llm = await create_llm(session, user_id, temperature_override=0.0)
     if not await _run_router(llm, text, config):
         return {
-            "messages": [AIMessage(content=_DIRECT_REPLY)],
+            "messages": [AIMessage(content=_NON_PRODUCT_REPLY)],
             "next_route": "end",
         }
     return {"next_route": "retrieve"}
@@ -255,6 +255,11 @@ _builder = (
 )
 
 graph = _builder.compile(
-    store=get_langgraph_store(),
     name="graph_service",
+)
+
+# 用于直连调用的 graph（带 checkpointer）
+graph_with_checkpoint = _builder.compile(
+    checkpointer=get_graph_checkpointer(),
+    name="graph_service_direct",
 )

@@ -43,7 +43,7 @@ async_engine = create_async_engine(
     pool_timeout=30,
     pool_recycle=60,
     pool_pre_ping=True,
-    echo=True,
+    echo=False, # sql 日志
     future=True,
 )
 
