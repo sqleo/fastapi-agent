@@ -5,9 +5,6 @@ from fastapi.responses import RedirectResponse
 
 from services.create_app import create_app
 from services.routers.agent import router as agent_router
-from services.routers.agent_customer_service import (
-    router as agent_customer_service_router,
-)
 from services.routers.graph_service import router as graph_service_router
 from services.routers.auth import router as auth_router
 from services.routers.file_management import router as file_management_router
@@ -23,7 +20,6 @@ app = create_app()
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth_router)
 v1.include_router(agent_router)
-v1.include_router(agent_customer_service_router)
 v1.include_router(graph_service_router)
 v1.include_router(file_management_router)
 v1.include_router(llamarag_router)

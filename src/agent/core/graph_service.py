@@ -23,6 +23,12 @@ from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 from agent.memory.graph_checkpoint import get_graph_checkpointer
+from agent.memory.langmem import get_langgraph_store
+from agent.memory.memory_nodes import (
+    short_term_window_node,
+    advanced_memory_retrieve_node,
+    advanced_memory_write_node,
+)
 from agent.tools.knowledge_base_search import knowledge_base_search
 from utils.llm_init import create_llm
 from utils.sql_db import async_session
@@ -220,9 +226,19 @@ async def retrieve_node(state: ServiceState, config: RunnableConfig) -> dict[str
 
 async def generate_node(state: ServiceState, config: RunnableConfig) -> dict[str, Any]:
     query = _last_user_text(state)
-    context = _message_content_str(state["messages"][-1])
 
-    prompt = _ANSWER_SYSTEM.format(retrieved_context=context, user_query=query)
+    # 从消息历史中查找知识库检索结果
+    retrieved_context = ""
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, AIMessage) and getattr(msg, "name", "") == "knowledge_base_search":
+            retrieved_context = _message_content_str(msg)
+            break
+
+    # 如果没有检索结果，使用默认消息
+    if not retrieved_context.strip():
+        retrieved_context = "无检索到的相关知识库内容。"
+
+    prompt = _ANSWER_SYSTEM.format(retrieved_context=retrieved_context, user_query=query)
     user_id = _resolve_user_id(config)
 
     async with async_session() as session:
@@ -245,21 +261,28 @@ def route_after_classify(state: ServiceState) -> Literal["retrieve", END]:
 
 _builder = (
     StateGraph(ServiceState)
+    .add_node("short_term_window", short_term_window_node)
     .add_node("classify", classify_node)
     .add_node("retrieve", retrieve_node)
+    .add_node("advanced_memory_retrieve", advanced_memory_retrieve_node)
     .add_node("generate", generate_node)
-    .add_edge(START, "classify")
+    .add_node("advanced_memory_write", advanced_memory_write_node)
+    .add_edge(START, "short_term_window")
+    .add_edge("short_term_window", "classify")
     .add_conditional_edges("classify", route_after_classify)
-    .add_edge("retrieve", "generate")
-    .add_edge("generate", END)
+    .add_edge("retrieve", "advanced_memory_retrieve")
+    .add_edge("advanced_memory_retrieve", "generate")
+    .add_edge("generate", "advanced_memory_write")
+    .add_edge("advanced_memory_write", END)
 )
 
 graph = _builder.compile(
     name="graph_service",
 )
 
-# 用于直连调用的 graph（带 checkpointer）
+# 用于直连调用的 graph（带 checkpointer 和 LangMem store）
 graph_with_checkpoint = _builder.compile(
     checkpointer=get_graph_checkpointer(),
+    store=get_langgraph_store(),
     name="graph_service_direct",
 )

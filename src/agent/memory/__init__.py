@@ -14,6 +14,14 @@ from .langmem import (
     LANGMEM_TOOLS,
     LANGMEM_ENABLED,
 )
+from .advanced_memory import AdvancedMemoryManager
+from .memory_nodes import (
+    short_term_window_node,
+    advanced_memory_retrieve_node,
+    advanced_memory_write_node,
+    memory_retrieve_node,
+    memory_write_node,
+)
 
 __all__ = [
     "delete_graph_service_conversation",
@@ -27,4 +35,10 @@ __all__ = [
     "get_langgraph_store",
     "LANGMEM_TOOLS",
     "LANGMEM_ENABLED",
+    "AdvancedMemoryManager",
+    "short_term_window_node",
+    "advanced_memory_retrieve_node",
+    "advanced_memory_write_node",
+    "memory_retrieve_node",
+    "memory_write_node",
 ]

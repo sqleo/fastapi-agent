@@ -2,17 +2,19 @@
 
 ## 📋 Module Update Summary
 
-**Last Updated**: 2026-04-17
+**Last Updated**: 2026-04-18
 
 | Module | Section | Updates |
 |--------|---------|---------|
 | LangGraph CLI | Critical Workflows | Added graph structure patterns, middleware order, RunnableConfig usage, AGENT.md prompt loading |
 | FastAPI | Critical Workflows | Added router patterns, async handlers, dependency injection, session management, auth flow, error handling |
+| Memory | Agent Memory | Added advanced memory manager, short-term window, layered summarization, and configurable memory nodes |
 
 **Changes Made**:
 - ✅ Expanded "Critical Workflows" with LangGraph CLI development patterns
 - ✅ Added "FastAPI Development Conventions" covering routers, handlers, database access, authentication, and request/response flow
 - ✅ Documented LangGraph-FastAPI integration (SDK calls, thread management, stream modes, tool visibility)
+- ✅ Added advanced memory management notes for `agent.memory` with LangMem store and configurable retrieval/write nodes
 
 ---
 
@@ -22,7 +24,7 @@
 
 **Key Services:**
 - **FastAPI** (`src/services/main_app.py`): HTTP API, auth, routing to `/v1/*` prefix
-- **LangGraph** (`langgraph.json`): Three graphs defined: `agent`, `customer_service`, `graph_service`
+- **LangGraph** (`langgraph.json`): Two graphs defined: `agent`, `graph_service`
 - **LlamaRAG** (`src/llamarag/`): Document parsing worker (Taskiq queue), Milvus vectorstore, LlamaIndex storage
 - **Databases**: MySQL (business data), PostgreSQL (checkpoints + LlamaIndex docstore), Milvus (embeddings), Redis (queues)
 
@@ -72,7 +74,7 @@ docker-compose -f docker-compose.dev.yml up
 ### LangGraph CLI Development Workflow
 
 **Defined in `langgraph.json`:**
-- **Graphs** are exported from Python: `agent`, `customer_service`, `graph_service`
+- **Graphs** are exported from Python: `agent`, `graph_service`
 - **Checkpointer**: PostgreSQL (stateful conversation history, time-travel, resumption)
 - **CLI commands**:
   - `langgraph dev` — local testing with hot reload (connects to `.env`)
@@ -82,6 +84,7 @@ docker-compose -f docker-compose.dev.yml up
 **Graph Structure Patterns:**
 - Graphs are built with `create_agent()` + middleware pipeline (see `src/agent/core/graph.py`)
 - Middleware order matters: `strip_tool_calls` → `filter_tools` → `short_term_message_window` → `token_level_pause` → `inject_llm_from_global_settings`
+- Advanced memory integration is implemented for the remaining graphs; compatibility with extra legacy graphs is not required for this change.
 - All graphs access `RunnableConfig.configurable` for `user_id` (required), `enabled_tools` (optional filter list)
 - System prompt loaded from `AGENT.md` at runtime; fallback to hardcoded default
 

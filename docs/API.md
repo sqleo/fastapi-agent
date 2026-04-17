@@ -40,7 +40,7 @@
 
 ## Agent  `/agent`
 
-依赖 **LangGraph 服务**（环境变量 `LANGGRAPH_API_URL`，默认 `http://localhost:8123`）。通用助手聊天通过 SDK 调用远程图 `assistant_id="agent"`；**智能客服** 使用 `assistant_id="customer_service"`（见下文「智能客服」）。
+依赖 **LangGraph 服务**（环境变量 `LANGGRAPH_API_URL`，默认 `http://localhost:8123`）。通用助手聊天通过 SDK 调用远程图 `assistant_id="agent"`。
 
 ### 工具列表与开关（默认：未保存偏好 = **全部工具开启**）
 
@@ -73,26 +73,6 @@
 
 
 **SSE 事件类型（示例）**：`start`、`thinking`、`text`、`tool`、`reference`、`paused`、`error`、`done`（以实际流为准）。
-
-### 智能客服  `/agent/customer-service`
-
-与通用 `/agent/chat` 行为类似，但固定调用 LangGraph 图 `**customer_service`**（系统提示由 `src/prompts/shared/templates/` 与 `src/prompts/products/customer_service/templates/` 下 Jinja 模板经 `prompts.products.customer_service.build_customer_service_system_prompt` 渲染，入口为 `compose.j2`；环境变量 `CS_TICKET_PATH` / `CS_HUMAN_SUPPORT_PATH` 可覆盖工单与人工入口路径）。默认仅启用工具 `**knowledge_base_search**`（知识库向量检索）及 LangMem（`manage_memory`、`search_memory`）；`enabled_tools` 不传时使用该默认集合，且会与 LangMem 工具名自动合并。
-
-
-| 方法   | 路径                                    | 说明                                                    |
-| ---- | ------------------------------------- | ----------------------------------------------------- |
-| POST | `/agent/customer-service/chat`        | 非流式；请求体：`message`、`thread_id`（可选）、`enabled_tools`（可选） |
-| POST | `/agent/customer-service/chat/stream` | SSE 流式                                                |
-
-
-建议为智能客服**单独使用** `thread_id`，勿与通用 Agent 会话混用同一线程。
-
-**按 Agent 的采样温度**：路由在调用 LangGraph 时会根据 `assistant_id` 写入 `configurable.llm_temperature`。可通过环境变量覆盖内置默认（未设置环境变量时：通用 `agent` 不覆盖温度，仍走厂商 `extra_config`；`customer_service` 默认 `0.2`）：
-
-- `LANGGRAPH_TEMPERATURE_AGENT`：通用助手
-- `LANGGRAPH_TEMPERATURE_CUSTOMER_SERVICE`：智能客服
-
-设置后**优先于**厂商 `extra_config.temperature`。详见 `src/utils/agent_temperature.py`。
 
 ### 对话控制与时间旅行
 

@@ -1,8 +1,4 @@
-"""将 ``FileAssetModel`` 对应磁盘文件解析为 ``static/parsed_md/{owner}/{file_id}.md``.
-
-LlamaRAG 解析主流程在此实现；开发时以 ``llamarag`` 路由与 ``parse.pipeline`` 为准，
-不必围绕 ``POST /v1/files/{file_id}/parse-md`` 改逻辑（该路由若存在仅作兼容转发）。
-"""
+"""将 ``FileAssetModel`` 对应磁盘文件解析为 ``static/parsed_md/{owner}/{file_id}.md``."""
 
 from __future__ import annotations
 
