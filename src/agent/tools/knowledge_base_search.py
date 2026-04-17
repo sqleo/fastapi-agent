@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain_core.tools import tool
 
 from agent.tools.runtime_user import langgraph_runtime_user_id
+from agent.tools.vector_search import search_user_knowledge_vectors_sync
 
 
 def _emit_custom_stream(payload: dict[str, Any]) -> None:
@@ -63,9 +65,12 @@ async def knowledge_base_search(
             "owner_user_id": owner_user_id,
         }
     )
-    out = (
-        "知识库向量检索尚未在服务端实现；"
-        "接入 llamarag 向量存储后将恢复语义检索能力。"
+    out = await asyncio.to_thread(
+        search_user_knowledge_vectors_sync,
+        query=query,
+        owner_user_id=owner_user_id,
+        top_k=top_k,
+        knowledge_base_id=knowledge_base_id,
     )
     _emit_custom_stream(
         {

@@ -20,7 +20,10 @@ services:
       - REDIS_URI=redis://redis:6379/1
       - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
       - WATCHFILES_FORCE_POLLING=true
+      - LLAMARAG_PROJECT_ROOT=/app
     volumes:
+      # BGE 嵌入：宿主机 ./model → /app/model（约定 model/BAAI/bge-small-zh-v1.5/；见 scripts/download_model.py）
+      - ./model:/app/model:ro
       - ./src:/app/src
       - ./configs:/app/configs
       - ./static:/app/static
@@ -55,7 +58,9 @@ services:
       # LlamaIndex docstore；表在 schema llamaindex，可与 POSTGRES_DB 同一库不同 schema（勿填 localhost）
       - LLAMAINDEX_POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
       - REDIS_URI=redis://redis:6379/1
+      - LLAMARAG_PROJECT_ROOT=/app
     volumes:
+      - ./model:/app/model:ro
       - ./src:/app/src
       - ./configs:/app/configs
       - ./static:/app/static
@@ -90,6 +95,8 @@ services:
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
       - MILVUS_DIM=${MILVUS_DIM:-1024}
+      # 与 embed_model 约定一致（默认自 /app 解析 model/BAAI/...；挂载后即用本地权重）
+      - LLAMARAG_PROJECT_ROOT=/app
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ok')"]
       interval: 10s
@@ -97,6 +104,7 @@ services:
       retries: 5
       start_period: 30s
     volumes:
+      - ./model:/app/model:ro
       - ./src:/app/src
       - ./configs:/app/configs
     restart: unless-stopped

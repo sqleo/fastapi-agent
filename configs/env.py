@@ -31,6 +31,20 @@ class ConfigSettings(BaseSettings):
         description="Redis 连接串，如 redis://localhost:6379/0；索引入队依赖",
     )
 
+    # ---------- BGE 嵌入（llamarag.local_model.embed_model）----------
+    # 挂载/拷贝约定：``{项目根}/model/BAAI/bge-small-zh-v1.5/``；容器内项目根多为 ``/app``。
+    # 若目录存在则优先用本地权重，否则回退 HuggingFace Hub ``BAAI/bge-small-zh-v1.5``。
+    bge_local_model_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("BGE_LOCAL_MODEL_PATH"),
+        description="嵌入模型目录绝对路径（含 tokenizer 等）；设置则最优先使用该路径",
+    )
+    llamarag_project_root: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLAMARAG_PROJECT_ROOT"),
+        description="应用项目根目录；与默认相对路径拼接为 model/BAAI/bge-small-zh-v1.5（例如 Docker WORKDIR=/app 时设 /app）",
+    )
+
     # ---------- LlamaIndex（docstore / index_store；与 LangGraph 隔离）----------
     llamaindex_postgres_uri: str = Field(
         default="",

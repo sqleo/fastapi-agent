@@ -8,7 +8,6 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel
 from starlette.middleware.cors import CORSMiddleware
 
-import models  # noqa: F401 — 注册 SQLModel 表元数据
 
 from services.middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.logging_setup import configure_logging

@@ -20,7 +20,10 @@ services:
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - REDIS_URI=redis://redis:6379/1
       - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
+      - LLAMARAG_PROJECT_ROOT=/app
     volumes:
+      # 宿主机路径见环境变量 BGE_MODEL_HOST_PATH（默认 ./model）；模型结构：BAAI/bge-small-zh-v1.5/
+      - ${BGE_MODEL_HOST_PATH:-./model}:/app/model:ro
       - app_static:/app/static
     restart: unless-stopped
     depends_on:
@@ -52,8 +55,10 @@ services:
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - LLAMAINDEX_POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
       - REDIS_URI=redis://redis:6379/1
+      - LLAMARAG_PROJECT_ROOT=/app
     command: taskiq worker llamarag.worker.taskiq_tasks:broker
     volumes:
+      - ${BGE_MODEL_HOST_PATH:-./model}:/app/model:ro
       - app_static:/app/static
     restart: unless-stopped
     depends_on:
@@ -87,12 +92,15 @@ services:
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
       - MILVUS_DIM=${MILVUS_DIM:-1024}
+      - LLAMARAG_PROJECT_ROOT=/app
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ok')"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 30s
+    volumes:
+      - ${BGE_MODEL_HOST_PATH:-./model}:/app/model:ro
     restart: unless-stopped
     depends_on:
       postgres:

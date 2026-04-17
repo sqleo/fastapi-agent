@@ -51,6 +51,10 @@ COPY langgraph.json ./
 COPY configs/ ./configs/
 COPY src/ ./src/
 
+# BGE：镜像内默认不包含大模型。Compose 将宿主机 ``./model`` 挂载到 ``/app/model``，
+# 约定子路径 ``BAAI/bge-small-zh-v1.5``（见 scripts/download_model.py、configs.env）。
+RUN mkdir -p /app/model
+
 # 5. 可选：如果你的项目有特殊的 install 脚本，在这里运行（通常不需要了）
 # RUN uv sync --frozen --no-dev
 

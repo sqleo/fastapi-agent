@@ -1,12 +1,14 @@
+"""Milvus 向量库与 LlamaIndex ``StorageContext`` 单例。"""
+
 from llama_index.core import StorageContext
-
 from llama_index.vector_stores.milvus import MilvusVectorStore
-
 from llama_index.vector_stores.milvus.utils import BM25BuiltInFunction
 
 from configs.env import env_config
-from llamarag.local_model.embed_model import dim
 
+# 须与 ``llamarag.local_model.embed_model`` 所用模型一致（bge-small-zh-v1.5 为 512）。
+# 不从此处 import embed_model，避免仅 import 向量存储时拉起 SentenceTransformer（如 LangGraph 加载图）。
+_EMBED_DIM = 512
 
 hnsw_index_config = {
     "index_type": "HNSW",  # 指定使用 HNSW
@@ -19,17 +21,18 @@ hnsw_index_config = {
 
 
 # ====================== 检索配置（推荐值） ======================
-
-hnsw_search_config = {"params": {"ef": 64}}  # 查询时候选列表大小（默认 64）
+# 须为「内层」HNSW 参数。LlamaIndex 在 hybrid/dense 检索里会再包一层 ``params``；
+hnsw_search_config = {"ef": 64}
 
 
 # ====================== 创建 MilvusVectorStore ======================
 
 vector_store = MilvusVectorStore(
     uri=env_config.milvus_uri,
-    dim=dim,  # 与 dense 嵌入一致（bge-small-zh-v1.5 为 512）
+    dim=_EMBED_DIM,
     collection_name="collection_hybrid",
-    overwrite=True,  # 开发时 True（重建集合），生产环境改成 False
+    similarity_metric="cosine",
+    # overwrite=True,  # 开发时 True（重建集合），生产环境改成 False
     index_config=hnsw_index_config,
     search_config=hnsw_search_config,
     enable_sparse=True,

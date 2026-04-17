@@ -16,13 +16,14 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.config import get_config
 from langgraph.store.base import BaseStore
 
+from agent.control.interrupt import token_level_pause_middleware
+from agent.injection import inject_llm_from_global_settings
+from agent.memory.context_window import short_term_message_window
+from agent.memory.langmem import get_langgraph_store
+
 # 中间件（已按功能拆分到 middleware/ 和 injection/）
 from agent.middleware import filter_tools_by_enabled_config
 from agent.middleware.tool_policy import strip_tool_calls_not_in_enabled_list
-from agent.injection import inject_llm_from_global_settings
-from agent.memory.context_window import short_term_message_window
-from agent.control.interrupt import token_level_pause_middleware
-from agent.memory.langmem import get_langgraph_store
 from agent.tools import ALL_AGENT_TOOLS
 from utils.langgraph_sse_error_patch import apply_vendor_api_sse_patch
 
