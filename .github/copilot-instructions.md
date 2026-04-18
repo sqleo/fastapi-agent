@@ -102,6 +102,12 @@ docker-compose -f docker-compose.dev.yml up
 - **Endpoint pattern**: `/v1/{domain}/{endpoint}` (e.g., `/v1/agent/chat/stream`)
 - **Status codes**: Use `HTTPException(status_code=...)` for errors; `SuccessResponse` wrapper for OK responses
 
+**Controllers Decoupling (Important):**
+- **Prefer decoupling first** when adding or modifying controllers: split orchestration from domain logic.
+- **One controller, one responsibility**: avoid mixing knowledge-base workflow, ingestion, and entity-review logic in the same module.
+- **Extract reusable domain operations** into separate controller/service modules (e.g., entity candidate upsert, review actions).
+- **Controller methods should orchestrate only**: validate input, call domain functions, handle transaction boundaries and response mapping.
+
 **Session & Database Access:**
 - **Dependency**: `session: AsyncSqlSessionDeps` (injected from `get_async_session()`)
 - **Transaction pattern**: `async with async_engine.begin() as conn: await conn.run_sync(...)`

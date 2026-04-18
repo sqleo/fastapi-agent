@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
@@ -11,9 +12,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from configs.env import env_config
-from llamarag.ingestion.index_kb_file import index_parsed_md_for_kb_file_sync
+from llamarag.ingestion.index_kb_file import (
+    index_parsed_md_for_kb_file_sync,
+    purge_indexed_kb_file_sync,
+)
 from models.BasicModel import beijing_now
 from models.FileManagementModel import FileAssetModel, FileParseStatus
+from models.EntityDictionaryModel import EntityCandidateModel, EntityType
 from models.KnowledgeBaseModel import (
     KbFilePipelineStatus,
     KnowledgeBaseFileModel,
@@ -21,6 +26,102 @@ from models.KnowledgeBaseModel import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _norm_entity_text(text: str) -> str:
+    s = re.sub(r"\s+", "", (text or "").strip().lower())
+    return s
+
+
+def _split_ingredients(value: str) -> list[str]:
+    parts = re.split(r"[，,、；;\n]+", value)
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def _build_entity_candidates(extracted: dict[str, object]) -> list[tuple[EntityType, str]]:
+    """从抽取结果组装候选实体列表。"""
+    out: list[tuple[EntityType, str]] = []
+
+    product_name = extracted.get("product_name")
+    if isinstance(product_name, str) and product_name.strip():
+        out.append((EntityType.PRODUCT, product_name.strip()))
+
+    brand = extracted.get("brand")
+    if isinstance(brand, str) and brand.strip():
+        out.append((EntityType.BRAND, brand.strip()))
+
+    category = extracted.get("category")
+    if isinstance(category, str) and category.strip():
+        out.append((EntityType.CATEGORY, category.strip()))
+
+    ingredients = extracted.get("ingredients")
+    if isinstance(ingredients, str) and ingredients.strip():
+        for item in _split_ingredients(ingredients):
+            out.append((EntityType.INGREDIENT, item))
+
+    keywords = extracted.get("keywords")
+    if isinstance(keywords, list):
+        for kw in keywords[:12]:
+            if isinstance(kw, str) and kw.strip():
+                out.append((EntityType.OTHER, kw.strip()))
+
+    dedup: dict[tuple[EntityType, str], None] = {}
+    for et, text in out:
+        norm = _norm_entity_text(text)
+        if not norm:
+            continue
+        dedup[(et, text.strip())] = None
+    return list(dedup.keys())
+
+
+async def _upsert_entity_candidates(
+    session: AsyncSession,
+    *,
+    owner_user_id: int,
+    knowledge_base_id: int,
+    file_id: int,
+    biz_code: str | None,
+    extracted: dict[str, object],
+) -> None:
+    """把入库前抽取结果写入候选实体池（pending）。"""
+    candidates = _build_entity_candidates(extracted)
+    if not candidates:
+        return
+
+    for entity_type, raw_text in candidates:
+        normalized = _norm_entity_text(raw_text)
+        stmt = select(EntityCandidateModel).where(
+            EntityCandidateModel.owner_user_id == owner_user_id,
+            EntityCandidateModel.knowledge_base_id == knowledge_base_id,
+            EntityCandidateModel.biz_code == biz_code,
+            EntityCandidateModel.file_id == file_id,
+            EntityCandidateModel.candidate_normalized == normalized,
+        )
+        res = await session.execute(stmt)
+        row = res.scalar_one_or_none()
+        if row is not None:
+            row.frequency = int(row.frequency or 1) + 1
+            if row.entity_type is None:
+                row.entity_type = entity_type
+            continue
+
+        session.add(
+            EntityCandidateModel(
+                owner_user_id=owner_user_id,
+                knowledge_base_id=knowledge_base_id,
+                biz_code=biz_code,
+                file_id=file_id,
+                entity_type=entity_type,
+                candidate_text=raw_text,
+                candidate_normalized=normalized,
+                evidence={
+                    "source": "ingestion.extract_doc_metadata",
+                    "fields": sorted(list(extracted.keys())),
+                },
+                frequency=1,
+                confidence=None,
+            )
+        )
 
 
 async def _get_owned_kb_or_404(
@@ -152,7 +253,7 @@ async def remove_files_from_knowledge_base_owned(
     kb_id: int,
     file_ids: list[int],
 ) -> tuple[list[int], list[int]]:
-    """批量将文件移出知识库，返回（生效列表，跳过列表）。"""
+    """批量将文件移出知识库，并清理 Milvus + Postgres(docstore) 数据。"""
     await _get_owned_kb_or_404(session, owner_user_id=owner_user_id, kb_id=kb_id)
 
     uniq_ids = list(dict.fromkeys(file_ids))
@@ -165,12 +266,41 @@ async def remove_files_from_knowledge_base_owned(
     rows = list(rows_res.scalars().all())
     hit_ids = {int(x.file_id) for x in rows}
 
+    purge_failed_ids: set[int] = set()
     for row in rows:
+        fid = int(row.file_id)
+        try:
+            purge_result = await asyncio.to_thread(
+                purge_indexed_kb_file_sync,
+                kb_id=kb_id,
+                file_id=fid,
+            )
+            if not (purge_result.milvus_ok and purge_result.docstore_ok):
+                logger.error(
+                    (
+                        "移除知识库文件时清理未达强一致 kb_id=%s file_id=%s "
+                        "milvus_ok=%s docstore_ok=%s docstore_enabled=%s err=%s"
+                    ),
+                    kb_id,
+                    fid,
+                    purge_result.milvus_ok,
+                    purge_result.docstore_ok,
+                    purge_result.docstore_enabled,
+                    purge_result.error,
+                )
+                purge_failed_ids.add(fid)
+        except Exception:
+            logger.exception("移除知识库文件时清理索引失败 kb_id=%s file_id=%s", kb_id, fid)
+            purge_failed_ids.add(fid)
+
+    for row in rows:
+        if int(row.file_id) in purge_failed_ids:
+            continue
         await session.delete(row)
     await session.commit()
 
-    affected = [fid for fid in uniq_ids if fid in hit_ids]
-    skipped = [fid for fid in uniq_ids if fid not in hit_ids]
+    affected = [fid for fid in uniq_ids if fid in hit_ids and fid not in purge_failed_ids]
+    skipped = [fid for fid in uniq_ids if fid not in hit_ids or fid in purge_failed_ids]
     return affected, skipped
 
 
@@ -315,6 +445,15 @@ async def _ingest_kb_file_persist(
         **extra_metadata,
         "structured_metadata": extracted,
     }
+
+    await _upsert_entity_candidates(
+        session,
+        owner_user_id=owner_user_id,
+        knowledge_base_id=kb_id,
+        file_id=file_id,
+        biz_code=(asset.project_code or "").strip() or None,
+        extracted=extracted,
+    )
 
     await session.commit()
     await session.refresh(kb_file)

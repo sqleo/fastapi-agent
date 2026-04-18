@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from llama_index.core import Document
 
@@ -17,9 +19,92 @@ from utils.content_semver import format_semver
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class PurgeResult:
+    """索引清理结果（强一致校验用）。"""
+
+    milvus_ok: bool
+    docstore_ok: bool
+    docstore_enabled: bool
+    error: str | None = None
+
+
 def _ref_doc_id_for_kb_file(kb_id: int, file_id: int) -> str:
     """同一知识库内同一文件的稳定 id，便于覆盖入库前删除旧向量."""
     return f"kb_{kb_id}_file_{file_id}"
+
+
+def _delete_ref_doc_from_docstore(docstore: Any, ref_doc_id: str) -> None:
+    """兼容不同 LlamaIndex 版本的 docstore 删除接口。"""
+    if docstore is None:
+        return
+    # 新旧版本接口兼容：优先按 ref_doc 删除
+    if hasattr(docstore, "delete_ref_doc"):
+        docstore.delete_ref_doc(ref_doc_id, raise_error=False)
+        return
+    if hasattr(docstore, "adelete_ref_doc"):
+        import asyncio
+
+        asyncio.run(docstore.adelete_ref_doc(ref_doc_id, raise_error=False))
+        return
+    # 兜底：部分实现可能仅支持按 document id 删除
+    if hasattr(docstore, "delete_document"):
+        docstore.delete_document(ref_doc_id, raise_error=False)
+        return
+    if hasattr(docstore, "adelete_document"):
+        import asyncio
+
+        asyncio.run(docstore.adelete_document(ref_doc_id, raise_error=False))
+
+
+def purge_indexed_kb_file_sync(*, kb_id: int, file_id: int) -> PurgeResult:
+    """清理知识库文件索引数据：Milvus + LlamaIndex Postgres(docstore)。"""
+    ref_doc_id = _ref_doc_id_for_kb_file(kb_id, file_id)
+
+    from llamarag.storage.postgres_llamaindex import get_llamaindex_docstore
+    from llamarag.storage.vector_store import vector_store
+
+    milvus_ok = False
+    docstore_ok = False
+    docstore = get_llamaindex_docstore()
+    docstore_enabled = docstore is not None
+
+    try:
+        vector_store.delete(ref_doc_id)
+        milvus_ok = True
+    except Exception as exc:
+        return PurgeResult(
+            milvus_ok=False,
+            docstore_ok=False,
+            docstore_enabled=docstore_enabled,
+            error=f"milvus_delete_failed: {exc}",
+        )
+
+    if not docstore_enabled:
+        return PurgeResult(
+            milvus_ok=True,
+            docstore_ok=True,
+            docstore_enabled=False,
+            error=None,
+        )
+
+    try:
+        _delete_ref_doc_from_docstore(docstore, ref_doc_id)
+        docstore_ok = True
+    except Exception as exc:
+        return PurgeResult(
+            milvus_ok=milvus_ok,
+            docstore_ok=False,
+            docstore_enabled=True,
+            error=f"docstore_delete_failed: {exc}",
+        )
+
+    return PurgeResult(
+        milvus_ok=milvus_ok,
+        docstore_ok=docstore_ok,
+        docstore_enabled=True,
+        error=None,
+    )
 
 
 def index_parsed_md_for_kb_file_sync(
