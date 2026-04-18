@@ -278,9 +278,9 @@ async def _ingest_kb_file_persist(
     kb_id: int,
     file_id: int,
 ) -> int | None:
-    """当前行已为 ``INDEXING`` 且已 commit；执行分块入库，成功返回 chunk 数，失败写 ``FAILED`` 并返回 ``None``。"""
+    """当前行已为 ``INDEXING``；执行入库并在成功后回写文件结构化结果。"""
     try:
-        chunk_count = await asyncio.to_thread(
+        chunk_count, extracted = await asyncio.to_thread(
             index_parsed_md_for_kb_file_sync,
             owner_user_id=owner_user_id,
             kb_id=kb_id,
@@ -310,6 +310,11 @@ async def _ingest_kb_file_persist(
     kb_file.indexed_semver_patch = int(asset.semver_patch)
 
     asset.last_indexed_at = now
+    extra_metadata = asset.extra_metadata if isinstance(asset.extra_metadata, dict) else {}
+    asset.extra_metadata = {
+        **extra_metadata,
+        "structured_metadata": extracted,
+    }
 
     await session.commit()
     await session.refresh(kb_file)

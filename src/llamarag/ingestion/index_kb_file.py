@@ -7,6 +7,11 @@ from pathlib import Path
 
 from llama_index.core import Document
 
+from llamarag.ingestion.metadata_extract import (
+    build_ingest_text,
+    build_vector_metadata,
+    extract_doc_metadata,
+)
 from utils.content_semver import format_semver
 
 logger = logging.getLogger(__name__)
@@ -27,8 +32,8 @@ def index_parsed_md_for_kb_file_sync(
     semver_major: int,
     semver_minor: int,
     semver_patch: int,
-) -> int:
-    """同步执行：读 parsed_md → ``create_node``（内部 IngestionPipeline）→ Milvus；返回 chunk 数。
+) -> tuple[int, dict[str, object]]:
+    """同步执行：读 parsed_md → ``create_node`` → Milvus；返回 chunk 数与抽取结果。
 
     调用方应在异步路由中通过 ``asyncio.to_thread`` 执行，避免阻塞事件循环。
     """
@@ -46,6 +51,14 @@ def index_parsed_md_for_kb_file_sync(
 
     ref_doc_id = _ref_doc_id_for_kb_file(kb_id, file_id)
     semver_str = format_semver(semver_major, semver_minor, semver_patch)
+    extracted = extract_doc_metadata(text, fallback_title=abs_path.stem)
+    vector_metadata = build_vector_metadata(extracted)
+    ingest_text = build_ingest_text(text, extracted)
+    logger.info(
+        "vector metadata length=%s ref_doc_id=%s",
+        len(str(vector_metadata)),
+        ref_doc_id,
+    )
 
     from llamarag.create_node.create_node import create_node
     from llamarag.storage.vector_store import vector_store
@@ -56,7 +69,7 @@ def index_parsed_md_for_kb_file_sync(
         logger.exception("删除旧向量失败（可能无历史数据） ref_doc_id=%s", ref_doc_id)
 
     doc = Document(
-        text=text,
+        text=ingest_text,
         doc_id=ref_doc_id,
         metadata={
             "owner_user_id": owner_user_id,
@@ -65,6 +78,7 @@ def index_parsed_md_for_kb_file_sync(
             "kb_file_id": kb_file_id,
             "content_semver": semver_str,
             "parsed_md_storage_key": key,
+            **vector_metadata,
         },
     )
 
@@ -72,4 +86,4 @@ def index_parsed_md_for_kb_file_sync(
     if not nodes:
         raise RuntimeError("IngestionPipeline 未生成任何节点")
 
-    return len(nodes)
+    return len(nodes), extracted
