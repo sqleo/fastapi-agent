@@ -145,4 +145,201 @@
 | 422  | 42201    | 参数校验失败        |
 
 
+---
+
+## Metadata 抽取配置  `/metadata-fields`
+
+用于给 LlamaRAG 入库前的结构化 metadata 抽取提供动态规则。**实际完整路径需加统一前缀 `/v1`**。
+
+### 作用域约定
+
+- `knowledge_base_id` 有值：知识库级配置
+- `knowledge_base_id` 为空且 `biz_code` 有值：业务级配置
+- `knowledge_base_id` 与 `biz_code` 都为空：全局级配置
+
+### 接口列表
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/metadata-fields` | 查询某个作用域下的字段配置列表，返回字段及其别名 |
+| POST | `/metadata-fields` | 新建字段配置，可同时写入初始化别名 |
+| PATCH | `/metadata-fields/{field_id}` | 更新字段配置 |
+| DELETE | `/metadata-fields/{field_id}` | 删除字段配置及其全部别名 |
+| GET | `/metadata-fields/{field_id}/aliases` | 查询某个字段下的别名列表 |
+| POST | `/metadata-fields/{field_id}/aliases` | 新增字段别名 |
+| PATCH | `/metadata-fields/aliases/{alias_id}` | 更新字段别名 |
+| DELETE | `/metadata-fields/aliases/{alias_id}` | 删除字段别名 |
+
+### 字段枚举
+
+- `value_type`：`text` / `number` / `list` / `date`
+- `extract_mode`：`field` / `section`
+- `match_mode`：`exact` / `contains` / `regex`
+- `status`：`1` 启用，`0` 禁用
+
+### 1）查询字段配置列表
+
+**GET** `/v1/metadata-fields?knowledge_base_id=12`
+
+Query 参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | int | 否 | 知识库 id；不传表示查询非知识库级 |
+| `biz_code` | string | 否 | 业务编码；不传表示查询全局级 |
+| `status` | int | 否 | 按状态过滤：`1` / `0` |
+
+响应示例：
+
+```json
+{
+	"code": 0,
+	"message": "查询成功",
+	"data": {
+		"total": 2,
+		"items": [
+			{
+				"id": 101,
+				"owner_user_id": 2,
+				"biz_code": "nutrition",
+				"knowledge_base_id": 12,
+				"field_key": "product_name",
+				"field_name": "产品名称",
+				"value_type": "text",
+				"extract_mode": "field",
+				"status": 1,
+				"priority": 10,
+				"created_at": "2026-04-18 10:00:00",
+				"updated_at": "2026-04-18 10:00:00",
+				"aliases": [
+					{
+						"id": 1001,
+						"field_id": 101,
+						"alias_text": "产品名称",
+						"match_mode": "exact",
+						"status": 1,
+						"priority": 10,
+						"created_at": "2026-04-18 10:00:00",
+						"updated_at": "2026-04-18 10:00:00"
+					}
+				]
+			}
+		]
+	}
+}
+```
+
+### 2）新建字段配置
+
+**POST** `/v1/metadata-fields`
+
+请求体示例：
+
+```json
+{
+	"biz_code": "nutrition",
+	"knowledge_base_id": 12,
+	"field_key": "product_name",
+	"field_name": "产品名称",
+	"value_type": "text",
+	"extract_mode": "field",
+	"status": 1,
+	"priority": 10,
+	"aliases": [
+		{
+			"alias_text": "产品名称",
+			"match_mode": "exact",
+			"status": 1,
+			"priority": 10
+		},
+		{
+			"alias_text": "商品名称",
+			"match_mode": "exact",
+			"status": 1,
+			"priority": 20
+		}
+	]
+}
+```
+
+说明：
+
+- `field_key` 建议前端统一传 snake_case
+- 若 `knowledge_base_id` 传值，会校验该知识库是否属于当前用户
+- `aliases` 可为空数组
+
+### 3）更新字段配置
+
+**PATCH** `/v1/metadata-fields/{field_id}`
+
+请求体示例：
+
+```json
+{
+	"field_name": "商品名称",
+	"priority": 5,
+	"status": 1
+}
+```
+
+### 4）删除字段配置
+
+**DELETE** `/v1/metadata-fields/{field_id}`
+
+响应示例：
+
+```json
+{
+	"code": 0,
+	"message": "删除成功",
+	"data": {
+		"field_id": 101
+	}
+}
+```
+
+### 5）查询字段别名列表
+
+**GET** `/v1/metadata-fields/{field_id}/aliases`
+
+### 6）新增字段别名
+
+**POST** `/v1/metadata-fields/{field_id}/aliases`
+
+请求体示例：
+
+```json
+{
+	"alias_text": "净含量",
+	"match_mode": "contains",
+	"status": 1,
+	"priority": 30
+}
+```
+
+### 7）更新字段别名
+
+**PATCH** `/v1/metadata-fields/aliases/{alias_id}`
+
+请求体示例：
+
+```json
+{
+	"alias_text": "规格",
+	"match_mode": "exact",
+	"priority": 5
+}
+```
+
+### 8）删除字段别名
+
+**DELETE** `/v1/metadata-fields/aliases/{alias_id}`
+
+### 前端对接建议
+
+- 配置页先调用列表接口，按 `knowledge_base_id + biz_code` 展示当前作用域配置
+- 创建字段时优先同时提交主别名，减少二次保存
+- 入库按钮前可先调用列表接口判断 `total > 0`
+- 若后端返回 `422` 且提示“未配置 metadata 抽取规则”，引导用户先完成该页面配置
+
 完整模型定义以 `**/docs` OpenAPI** 为准；本文仅作导航与约定说明。

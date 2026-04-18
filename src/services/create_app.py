@@ -12,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 from services.middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.logging_setup import configure_logging
 from utils.response import register_exception_handlers
-from utils.sql_db import async_engine, check_db_connection
+from utils.sql_db import check_db_connection, dispose_async_engine, get_async_engine
 from monitor.pg import init_monitor_pool, close_monitor_pool
 
 logger = logging.getLogger("services.request")
@@ -27,7 +27,8 @@ def create_app():
         await check_db_connection()
 
         # 创建业务表（开发环境；生产建议用 Alembic）
-        async with async_engine.begin() as conn:
+        engine = get_async_engine()
+        async with engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
         logger.info("MySQL 业务表已就绪")
 
@@ -42,7 +43,7 @@ def create_app():
 
         # ---- 关闭：释放连接池 ----
         await close_monitor_pool()
-        await async_engine.dispose()
+        await dispose_async_engine()
         logger.info("数据库连接已关闭")
 
     app = FastAPI(

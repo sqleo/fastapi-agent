@@ -114,6 +114,7 @@ def index_parsed_md_for_kb_file_sync(
     file_id: int,
     kb_file_id: int,
     parsed_md_storage_key: str,
+    biz_code: str | None,
     semver_major: int,
     semver_minor: int,
     semver_patch: int,
@@ -136,7 +137,13 @@ def index_parsed_md_for_kb_file_sync(
 
     ref_doc_id = _ref_doc_id_for_kb_file(kb_id, file_id)
     semver_str = format_semver(semver_major, semver_minor, semver_patch)
-    extracted = extract_doc_metadata(text, fallback_title=abs_path.stem)
+    extracted = extract_doc_metadata(
+        text,
+        fallback_title=abs_path.stem,
+        owner_user_id=owner_user_id,
+        knowledge_base_id=kb_id,
+        biz_code=biz_code,
+    )
     vector_metadata = build_vector_metadata(extracted)
     ingest_text = build_ingest_text(text, extracted)
     logger.info(

@@ -108,6 +108,25 @@ docker-compose -f docker-compose.dev.yml up
 - **Extract reusable domain operations** into separate controller/service modules (e.g., entity candidate upsert, review actions).
 - **Controller methods should orchestrate only**: validate input, call domain functions, handle transaction boundaries and response mapping.
 
+**Entity Dictionary Conventions (Cross-Business Scope):**
+- Keep **3-table separation** for entity workflow:
+  - `entity_dictionary`: approved canonical entities only
+  - `entity_alias`: approved aliases only
+  - `entity_candidate`: pending/review workflow only
+- Use scope fields on all entity tables: `owner_user_id` (required), `biz_code` (optional), `knowledge_base_id` (optional).
+- Resolution priority must be:
+  1) KB-level (`knowledge_base_id` matched)
+  2) Biz-level (`biz_code` matched and `knowledge_base_id is null`)
+  3) Global-level (`biz_code is null and knowledge_base_id is null`)
+- Do **not** use `entity_candidate` directly in online retrieval resolution.
+- Candidate ingestion should happen after metadata extraction and before review:
+  - source fields: `product_name`, `brand`, `category`, `ingredients`, `keywords`
+  - dedup key: `owner_user_id + biz_code + knowledge_base_id + file_id + candidate_normalized`
+- Review actions:
+  - approve: write/update `entity_dictionary` + `entity_alias`
+  - reject: set candidate status to `rejected`
+  - merge: set candidate status to `merged` and bind `approved_entity_id`
+
 **Session & Database Access:**
 - **Dependency**: `session: AsyncSqlSessionDeps` (injected from `get_async_session()`)
 - **Transaction pattern**: `async with async_engine.begin() as conn: await conn.run_sync(...)`

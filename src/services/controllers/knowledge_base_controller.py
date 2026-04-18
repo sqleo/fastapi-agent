@@ -16,6 +16,7 @@ from llamarag.ingestion.index_kb_file import (
     index_parsed_md_for_kb_file_sync,
     purge_indexed_kb_file_sync,
 )
+from llamarag.ingestion.metadata_field_config import has_metadata_field_config_async
 from models.BasicModel import beijing_now
 from models.FileManagementModel import FileAssetModel, FileParseStatus
 from models.EntityDictionaryModel import EntityCandidateModel, EntityType
@@ -417,6 +418,7 @@ async def _ingest_kb_file_persist(
             file_id=file_id,
             kb_file_id=int(kb_file.id),
             parsed_md_storage_key=asset.parsed_md_storage_key or "",
+            biz_code=(asset.project_code or "").strip() or None,
             semver_major=int(asset.semver_major),
             semver_minor=int(asset.semver_minor),
             semver_patch=int(asset.semver_patch),
@@ -468,12 +470,22 @@ async def enqueue_kb_file_index_owned(
     file_id: int,
 ) -> KnowledgeBaseFileModel:
     """校验后将流水线置为 ``QUEUED`` 并投递 Taskiq（Redis）；需配置 ``REDIS_URI``。"""
-    kb_file, _asset = await _validate_kb_file_for_index(
+    kb_file, asset = await _validate_kb_file_for_index(
         session,
         owner_user_id=owner_user_id,
         kb_id=kb_id,
         file_id=file_id,
     )
+    has_config = await has_metadata_field_config_async(
+        owner_user_id=owner_user_id,
+        knowledge_base_id=kb_id,
+        biz_code=(asset.project_code or "").strip() or None,
+    )
+    if not has_config:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="当前知识库/业务未配置 metadata 抽取规则，请先完成字段与字段别名配置后再加入入库队列",
+        )
     redis_url = (env_config.redis_uri or "").strip()
     if not redis_url:
         raise HTTPException(

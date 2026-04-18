@@ -18,6 +18,7 @@ services:
       - LANGGRAPH_API_URL=http://langgraph:8000
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
+      - LLAMAINDEX_POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
       - REDIS_URI=redis://redis:6379/1
       - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
       - LLAMARAG_PROJECT_ROOT=/app

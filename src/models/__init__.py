@@ -10,6 +10,7 @@ from models.KnowledgeBaseModel import (  # noqa: F401
     KnowledgeBaseFileModel,
     KnowledgeBaseModel,
 )
+from models.MetadataFieldModel import MetadataFieldAliasModel, MetadataFieldModel  # noqa: F401
 from models.LlmGlobalSettingModel import LlmGlobalSettingModel  # noqa: F401
 from models.LlmVendorModel import LlmVendorModel  # noqa: F401
 from models.UserAgentToolSettingsModel import UserAgentToolSettingsModel  # noqa: F401

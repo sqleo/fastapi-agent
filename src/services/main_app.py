@@ -9,6 +9,7 @@ from services.routers.graph_service import router as graph_service_router
 from services.routers.auth import router as auth_router
 from services.routers.file_management import router as file_management_router
 from services.routers.knowledge_base import router as knowledge_base_router
+from services.routers.metadata_field import router as metadata_field_router
 from services.routers.llm_global_setting import router as llm_global_setting_router
 from services.routers.llm_vendor import router as llm_vendor_router
 from services.routers.llamarag import router as llamarag_router
@@ -24,6 +25,7 @@ v1.include_router(graph_service_router)
 v1.include_router(file_management_router)
 v1.include_router(llamarag_router)
 v1.include_router(knowledge_base_router)
+v1.include_router(metadata_field_router)
 v1.include_router(llm_vendor_router)
 v1.include_router(llm_global_setting_router)
 v1.include_router(monitor_router)
