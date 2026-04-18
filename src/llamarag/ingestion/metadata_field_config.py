@@ -1,4 +1,4 @@
-"""metadata 抽取配置加载：优先读 DB，读不到走默认值。"""
+"""metadata 抽取配置加载：按作用域从 DB 读取启用字段与别名。"""
 
 from __future__ import annotations
 

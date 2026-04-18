@@ -2,84 +2,113 @@
 
 from __future__ import annotations
 
+import logging
 import re
-from collections import Counter
 
-from llamarag.ingestion.metadata_field_config import load_metadata_field_config_sync
+from llamarag.local_model.uie_model import RecognizedEntity, extract_entities_by_uie
+from models.EntityDictionaryModel import EntityType
 
-_STOP_WORDS = {
-    "的",
-    "了",
-    "和",
-    "与",
-    "及",
-    "或",
-    "在",
-    "是",
-    "为",
-    "可",
-    "有",
-    "后",
-    "前",
-    "将",
-    "对",
-    "按",
-    "请",
-    "该",
-    "这",
-    "一个",
-    "一种",
-    "进行",
-    "相关",
-    "使用",
-    "产品",
-    "文档",
-}
+logger = logging.getLogger(__name__)
+_MODEL_ENTITY_MIN_CONFIDENCE = 0.3
 
 
 def _first_heading(text: str) -> str | None:
+    """提取 Markdown 文档的第一个一级标题作为文档标题。"""
     m = re.search(r"^#\s+(.+)$", text, re.M)
     return m.group(1).strip() if m else None
 
 
-def _section_body(text: str, heading: str) -> str:
-    pattern = rf"^##\s+{re.escape(heading)}\s*$([\s\S]*?)(?=^##\s+|\Z)"
-    m = re.search(pattern, text, re.M)
-    return m.group(1).strip() if m else ""
-
-
-def _field_value(text: str, label: str) -> str | None:
-    m = re.search(rf"[\-*]\s*\*\*{re.escape(label)}\*\*[:：]\s*(.+)", text)
-    if m:
-        return m.group(1).strip().rstrip("。")
-    m = re.search(rf"{re.escape(label)}[:：]\s*(.+)", text)
-    return m.group(1).strip().rstrip("。") if m else None
-
-
-def _extract_by_aliases(text: str, aliases: list[str], *, extract_mode: str) -> str | None:
-    if extract_mode == "section":
-        for alias in aliases:
-            value = _section_body(text, alias)
-            if value:
-                return value
-        return None
-    for alias in aliases:
-        value = _field_value(text, alias)
-        if value:
-            return value
-    return None
-
-
-def _extract_keywords(text: str, limit: int = 12) -> list[str]:
-    tokens = re.findall(r"[\u4e00-\u9fffA-Za-z0-9\-]{2,}", text)
-    counter: Counter[str] = Counter()
-    for token in tokens:
-        if token in _STOP_WORDS:
+def _pick_best_model_entity(
+    entities: list[RecognizedEntity],
+    entity_type: EntityType,
+    *,
+    min_confidence: float = _MODEL_ENTITY_MIN_CONFIDENCE,
+) -> str | None:
+    best_text: str | None = None
+    best_score = -1.0
+    for entity in entities:
+        if entity.entity_type != entity_type:
             continue
-        if token.isdigit():
+        text = entity.text.strip()
+        if not text or entity.confidence < min_confidence:
             continue
-        counter[token] += 1
-    return [word for word, _ in counter.most_common(limit)]
+        if entity.confidence > best_score:
+            best_score = entity.confidence
+            best_text = text
+    return best_text
+
+
+def _pick_all_model_entities(
+    entities: list[RecognizedEntity],
+    entity_type: EntityType,
+    *,
+    limit: int = 8,
+    min_confidence: float = _MODEL_ENTITY_MIN_CONFIDENCE,
+) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for entity in entities:
+        if entity.entity_type != entity_type:
+            continue
+        if entity.confidence < min_confidence:
+            continue
+        text = entity.text.strip()
+        norm = re.sub(r"\s+", "", text.lower())
+        if not text or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _serialize_model_entities(entities: list[RecognizedEntity]) -> list[dict[str, object]]:
+    return [
+        {
+            "entity_type": entity.entity_type.value,
+            "text": entity.text,
+            "confidence": round(entity.confidence, 4),
+            "source": entity.source,
+        }
+        for entity in entities
+    ]
+
+
+def _extract_keywords_from_model_entities(
+    entities: list[RecognizedEntity],
+    *,
+    limit: int = 12,
+    min_confidence: float = _MODEL_ENTITY_MIN_CONFIDENCE,
+) -> list[str]:
+    ordered = sorted(entities, key=lambda x: x.confidence, reverse=True)
+    out: list[str] = []
+    seen: set[str] = set()
+    for entity in ordered:
+        if entity.confidence < min_confidence:
+            continue
+        text = entity.text.strip()
+        norm = re.sub(r"\s+", "", text.lower())
+        if not text or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _log_model_entities(entities: list[RecognizedEntity]) -> None:
+    if not entities:
+        logger.info("实体抽取未识别到任何实体")
+        return
+    for entity in entities:
+        logger.warning(
+            "recognized_entity type=%s text=%s confidence=%.4f",
+            entity.entity_type.value,
+            entity.text.strip(),
+            entity.confidence,
+        )
 
 
 def extract_doc_metadata(
@@ -90,47 +119,36 @@ def extract_doc_metadata(
     knowledge_base_id: int | None = None,
     biz_code: str | None = None,
 ) -> dict[str, object]:
-    """从 Markdown 文本中提取适合检索过滤的轻量元数据。"""
+    """纯模型实体抽取：实体字段仅由 UIE 模型提供。"""
+    _ = owner_user_id, knowledge_base_id, biz_code
+
     title = _first_heading(text) or fallback_title
     faq_questions = re.findall(r"\*\*Q\d+[:：](.+?)\*\*", text)
-    product_name = title.replace("产品文档", "").replace("：", " ").strip()
-    category = None
-    for candidate in ("能量棒", "奶昔", "饮料", "饮品", "零食"):
-        if candidate in text or candidate in title:
-            category = candidate
-            break
-    brand = None
-    if "：" in title:
-        brand = title.split("：", 1)[0].strip()
 
-    field_config = load_metadata_field_config_sync(
-        owner_user_id=owner_user_id,
-        knowledge_base_id=knowledge_base_id,
-        biz_code=biz_code,
+    logger.warning("uie_input title=%s text_len=%d", title, len(text))
+    model_entities = extract_entities_by_uie(text, title=title)
+    logger.warning("uie_output_count=%d", len(model_entities))
+    _log_model_entities(model_entities)
+    product_name = _pick_best_model_entity(model_entities, EntityType.PRODUCT)
+    brand = _pick_best_model_entity(model_entities, EntityType.BRAND)
+    category = _pick_best_model_entity(model_entities, EntityType.CATEGORY)
+    model_ingredients = _pick_all_model_entities(model_entities, EntityType.INGREDIENT, limit=8)
+    doc_type = (
+        "product_doc"
+        if any(entity.entity_type in {EntityType.PRODUCT, EntityType.BRAND, EntityType.CATEGORY} for entity in model_entities)
+        else "general_md"
     )
-    if not field_config:
-        raise ValueError("未配置 metadata 抽取规则，请先配置字段与字段别名")
-
-    extracted_values: dict[str, object] = {}
-    for field_key, cfg in field_config.items():
-        aliases = cfg.get("aliases") or []
-        extract_mode = str(cfg.get("extract_mode") or "field")
-        if not isinstance(aliases, list) or not aliases:
-            continue
-        value = _extract_by_aliases(text, [str(x) for x in aliases if x], extract_mode=extract_mode)
-        if not value:
-            continue
-        extracted_values[field_key] = value[:500] if field_key == "ingredients" else value
 
     metadata: dict[str, object] = {
         "doc_title": title,
-        "doc_type": "product_doc" if "产品" in title or "规格" in text else "general_md",
+        "doc_type": doc_type,
         "product_name": product_name,
         "brand": brand,
         "category": category,
+        "ingredients": "、".join(model_ingredients) if model_ingredients else None,
         "faq_questions": [q.strip() for q in faq_questions[:12]],
-        "keywords": _extract_keywords(text),
-        **extracted_values,
+        "keywords": _extract_keywords_from_model_entities(model_entities),
+        "model_entities": _serialize_model_entities(model_entities),
     }
     return {k: v for k, v in metadata.items() if v not in (None, "", [], {})}
 

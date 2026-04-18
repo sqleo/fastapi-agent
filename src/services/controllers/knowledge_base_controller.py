@@ -16,7 +16,6 @@ from llamarag.ingestion.index_kb_file import (
     index_parsed_md_for_kb_file_sync,
     purge_indexed_kb_file_sync,
 )
-from llamarag.ingestion.metadata_field_config import has_metadata_field_config_async
 from models.BasicModel import beijing_now
 from models.FileManagementModel import FileAssetModel, FileParseStatus
 from models.EntityDictionaryModel import EntityCandidateModel, EntityType
@@ -29,6 +28,9 @@ from models.KnowledgeBaseModel import (
 logger = logging.getLogger(__name__)
 
 
+EntityCandidateSeed = tuple[EntityType, str, float | None, str]
+
+
 def _norm_entity_text(text: str) -> str:
     s = re.sub(r"\s+", "", (text or "").strip().lower())
     return s
@@ -39,40 +41,65 @@ def _split_ingredients(value: str) -> list[str]:
     return [p.strip() for p in parts if p and p.strip()]
 
 
-def _build_entity_candidates(extracted: dict[str, object]) -> list[tuple[EntityType, str]]:
+def _to_entity_type(value: object) -> EntityType | None:
+    if isinstance(value, EntityType):
+        return value
+    if isinstance(value, str):
+        try:
+            return EntityType(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _build_entity_candidates(extracted: dict[str, object]) -> list[EntityCandidateSeed]:
     """从抽取结果组装候选实体列表。"""
-    out: list[tuple[EntityType, str]] = []
+    out: list[EntityCandidateSeed] = []
 
     product_name = extracted.get("product_name")
     if isinstance(product_name, str) and product_name.strip():
-        out.append((EntityType.PRODUCT, product_name.strip()))
+        out.append((EntityType.PRODUCT, product_name.strip(), None, "metadata.product_name"))
 
     brand = extracted.get("brand")
     if isinstance(brand, str) and brand.strip():
-        out.append((EntityType.BRAND, brand.strip()))
+        out.append((EntityType.BRAND, brand.strip(), None, "metadata.brand"))
 
     category = extracted.get("category")
     if isinstance(category, str) and category.strip():
-        out.append((EntityType.CATEGORY, category.strip()))
+        out.append((EntityType.CATEGORY, category.strip(), None, "metadata.category"))
 
     ingredients = extracted.get("ingredients")
     if isinstance(ingredients, str) and ingredients.strip():
         for item in _split_ingredients(ingredients):
-            out.append((EntityType.INGREDIENT, item))
+            out.append((EntityType.INGREDIENT, item, None, "metadata.ingredients"))
 
-    keywords = extracted.get("keywords")
-    if isinstance(keywords, list):
-        for kw in keywords[:12]:
-            if isinstance(kw, str) and kw.strip():
-                out.append((EntityType.OTHER, kw.strip()))
+    model_entities = extracted.get("model_entities")
+    if isinstance(model_entities, list):
+        for item in model_entities:
+            if not isinstance(item, dict):
+                continue
+            entity_type = _to_entity_type(item.get("entity_type"))
+            entity_text = str(item.get("text") or "").strip()
+            if entity_type is None or not entity_text:
+                continue
+            confidence_raw = item.get("confidence")
+            confidence = None
+            if isinstance(confidence_raw, (int, float)):
+                confidence = float(confidence_raw)
+            source = str(item.get("source") or "model.uie-nano")
+            out.append((entity_type, entity_text, confidence, source))
 
-    dedup: dict[tuple[EntityType, str], None] = {}
-    for et, text in out:
+    dedup: dict[tuple[EntityType, str], EntityCandidateSeed] = {}
+    for et, text, confidence, source in out:
         norm = _norm_entity_text(text)
         if not norm:
             continue
-        dedup[(et, text.strip())] = None
-    return list(dedup.keys())
+        key = (et, norm)
+        current = (et, text.strip(), confidence, source)
+        old = dedup.get(key)
+        if old is None or (confidence or -1.0) > (old[2] or -1.0):
+            dedup[key] = current
+    return list(dedup.values())
 
 
 async def _upsert_entity_candidates(
@@ -89,7 +116,7 @@ async def _upsert_entity_candidates(
     if not candidates:
         return
 
-    for entity_type, raw_text in candidates:
+    for entity_type, raw_text, confidence, source in candidates:
         normalized = _norm_entity_text(raw_text)
         stmt = select(EntityCandidateModel).where(
             EntityCandidateModel.owner_user_id == owner_user_id,
@@ -104,6 +131,17 @@ async def _upsert_entity_candidates(
             row.frequency = int(row.frequency or 1) + 1
             if row.entity_type is None:
                 row.entity_type = entity_type
+            if confidence is not None and (row.confidence is None or confidence > row.confidence):
+                row.confidence = confidence
+            evidence = row.evidence if isinstance(row.evidence, dict) else {}
+            sources = evidence.get("sources") if isinstance(evidence.get("sources"), list) else []
+            if source not in sources:
+                sources.append(source)
+            row.evidence = {
+                **evidence,
+                "sources": sources,
+                "fields": sorted(list(extracted.keys())),
+            }
             continue
 
         session.add(
@@ -117,10 +155,11 @@ async def _upsert_entity_candidates(
                 candidate_normalized=normalized,
                 evidence={
                     "source": "ingestion.extract_doc_metadata",
+                    "sources": [source],
                     "fields": sorted(list(extracted.keys())),
                 },
                 frequency=1,
-                confidence=None,
+                confidence=confidence,
             )
         )
 
@@ -470,22 +509,12 @@ async def enqueue_kb_file_index_owned(
     file_id: int,
 ) -> KnowledgeBaseFileModel:
     """校验后将流水线置为 ``QUEUED`` 并投递 Taskiq（Redis）；需配置 ``REDIS_URI``。"""
-    kb_file, asset = await _validate_kb_file_for_index(
+    kb_file, _asset = await _validate_kb_file_for_index(
         session,
         owner_user_id=owner_user_id,
         kb_id=kb_id,
         file_id=file_id,
     )
-    has_config = await has_metadata_field_config_async(
-        owner_user_id=owner_user_id,
-        knowledge_base_id=kb_id,
-        biz_code=(asset.project_code or "").strip() or None,
-    )
-    if not has_config:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="当前知识库/业务未配置 metadata 抽取规则，请先完成字段与字段别名配置后再加入入库队列",
-        )
     redis_url = (env_config.redis_uri or "").strip()
     if not redis_url:
         raise HTTPException(

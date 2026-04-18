@@ -39,6 +39,21 @@ class ConfigSettings(BaseSettings):
         validation_alias=AliasChoices("BGE_LOCAL_MODEL_PATH"),
         description="嵌入模型目录绝对路径（含 tokenizer 等）；设置则最优先使用该路径",
     )
+    uie_local_model_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("UIE_LOCAL_MODEL_PATH"),
+        description="UIE 实体模型目录绝对路径（含 modeling_uie.py 等）；设置则最优先使用该路径",
+    )
+    uie_entity_confidence_threshold: float = Field(
+        default=0.65,
+        validation_alias=AliasChoices("UIE_ENTITY_CONFIDENCE_THRESHOLD"),
+        description="UIE 实体识别置信度阈值（0~1）",
+    )
+    uie_entity_max_length: int = Field(
+        default=512,
+        validation_alias=AliasChoices("UIE_ENTITY_MAX_LENGTH"),
+        description="UIE 实体识别最大 token 长度",
+    )
     llamarag_project_root: str = Field(
         default="",
         validation_alias=AliasChoices("LLAMARAG_PROJECT_ROOT"),

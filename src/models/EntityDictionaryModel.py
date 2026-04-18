@@ -15,11 +15,11 @@ from models.BasicModel import BasicModel
 class EntityType(str, Enum):
     """实体类型。"""
 
+    OTHER = "other"
     PRODUCT = "product"
     BRAND = "brand"
     CATEGORY = "category"
     INGREDIENT = "ingredient"
-    OTHER = "other"
 
 
 class CandidateStatus(str, Enum):

@@ -342,4 +342,164 @@ Query 参数：
 - 入库按钮前可先调用列表接口判断 `total > 0`
 - 若后端返回 `422` 且提示“未配置 metadata 抽取规则”，引导用户先完成该页面配置
 
+---
+
+## 实体候选审核  `/entity-candidates`
+
+用于管理入库阶段抽取到的候选实体（`entity_candidate`），支持分页筛选与审核三动作。
+
+### 接口列表
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/entity-candidates` | 候选实体分页列表（默认仅返回 `pending`） |
+| GET | `/entity-candidates/target-entities` | 合并弹窗目标实体下拉（用于 `target_entity_id`） |
+| POST | `/entity-candidates/{candidate_id}/approve` | 审核通过（落库到 `entity_dictionary`，并补充别名） |
+| POST | `/entity-candidates/{candidate_id}/reject` | 审核驳回 |
+| POST | `/entity-candidates/{candidate_id}/merge` | 合并到已有正式实体 |
+
+### 1）候选实体分页列表
+
+**GET** `/v1/entity-candidates`
+
+Query 参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `page` | int | 否 | 页码，默认 `1` |
+| `page_size` | int | 否 | 每页条数，默认 `20`，最大 `100` |
+| `status` | string | 否 | 状态过滤：`pending/approved/rejected/merged`，默认 `pending` |
+| `biz_code` | string | 否 | 业务编码；不传表示不按业务过滤 |
+| `knowledge_base_id` | int | 否 | 知识库 id；不传表示不按知识库过滤 |
+| `file_id` | int | 否 | 来源文件 id |
+| `keyword` | string | 否 | 候选文本模糊搜索 |
+
+响应示例：
+
+```json
+{
+	"code": 0,
+	"message": "查询成功",
+	"data": {
+		"total": 1,
+		"page": 1,
+		"page_size": 20,
+		"items": [
+			{
+				"id": 9,
+				"owner_user_id": 2,
+				"biz_code": "nutrition",
+				"knowledge_base_id": 1,
+				"file_id": 10,
+				"entity_type": "brand",
+				"candidate_text": "WonderLab",
+				"candidate_normalized": "wonderlab",
+				"evidence": {"source": "ingestion.extract_doc_metadata"},
+				"frequency": 2,
+				"confidence": null,
+				"status": "pending",
+				"reviewer_user_id": null,
+				"reviewed_at": null,
+				"review_comment": null,
+				"approved_entity_id": null,
+				"created_at": "2026-04-18 12:00:00",
+				"updated_at": "2026-04-18 12:00:00"
+			}
+		]
+	}
+}
+```
+
+### 2）审核通过
+
+**POST** `/v1/entity-candidates/{candidate_id}/approve`
+
+请求体示例：
+
+```json
+{
+	"canonical_name": "WonderLab",
+	"entity_type": "brand",
+	"aliases": ["WL", "WonderLab官方"],
+	"review_comment": "品牌词确认"
+}
+```
+
+说明：
+
+- 若同作用域同类型下已存在同 `normalized_name` 的正式实体，则复用该实体
+- 会自动把候选文本作为别名补充到 `entity_alias`
+
+### 3）审核驳回
+
+**POST** `/v1/entity-candidates/{candidate_id}/reject`
+
+请求体示例：
+
+```json
+{
+	"review_comment": "噪音词，非业务实体"
+}
+```
+
+### 4）审核合并
+
+**POST** `/v1/entity-candidates/{candidate_id}/merge`
+
+请求体示例：
+
+```json
+{
+	"target_entity_id": 101,
+	"review_comment": "同义词并入已有实体"
+}
+```
+
+说明：
+
+- 目标实体必须与候选实体同用户、同作用域（`biz_code` 与 `knowledge_base_id` 一致）
+- 合并时会把候选文本补充为目标实体别名
+
+### 5）合并目标实体下拉
+
+**GET** `/v1/entity-candidates/target-entities`
+
+Query 参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `biz_code` | string | 否 | 业务编码；建议传当前候选的 `biz_code` |
+| `knowledge_base_id` | int | 否 | 知识库 id；建议传当前候选的 `knowledge_base_id` |
+| `entity_type` | string | 否 | 实体类型过滤：`product/brand/category/ingredient/other` |
+| `keyword` | string | 否 | 标准实体名模糊搜索 |
+| `limit` | int | 否 | 返回条数上限，默认 `50`，最大 `200` |
+
+响应示例：
+
+```json
+{
+	"code": 0,
+	"message": "查询成功",
+	"data": {
+		"total": 2,
+		"items": [
+			{
+				"id": 101,
+				"canonical_name": "WonderLab",
+				"entity_type": "brand",
+				"biz_code": "nutrition",
+				"knowledge_base_id": 1
+			},
+			{
+				"id": 205,
+				"canonical_name": "薄荷味能量棒",
+				"entity_type": "product",
+				"biz_code": "nutrition",
+				"knowledge_base_id": 1
+			}
+		]
+	}
+}
+```
+
 完整模型定义以 `**/docs` OpenAPI** 为准；本文仅作导航与约定说明。

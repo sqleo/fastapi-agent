@@ -8,6 +8,7 @@ from services.routers.agent import router as agent_router
 from services.routers.graph_service import router as graph_service_router
 from services.routers.auth import router as auth_router
 from services.routers.file_management import router as file_management_router
+from services.routers.entity_candidate import router as entity_candidate_router
 from services.routers.knowledge_base import router as knowledge_base_router
 from services.routers.metadata_field import router as metadata_field_router
 from services.routers.llm_global_setting import router as llm_global_setting_router
@@ -23,6 +24,7 @@ v1.include_router(auth_router)
 v1.include_router(agent_router)
 v1.include_router(graph_service_router)
 v1.include_router(file_management_router)
+v1.include_router(entity_candidate_router)
 v1.include_router(llamarag_router)
 v1.include_router(knowledge_base_router)
 v1.include_router(metadata_field_router)
