@@ -123,7 +123,7 @@ AI: {ai_response}
         """渐进式压缩：检查总 token，超限时压缩最旧轮次。"""
         if self.store is None:
             logger.warning(
-                "AdvancedMemoryManager no custom store available, skipping compression",
+                "AdvancedMemoryManager 没有可用的自定义存储，跳过压缩",
             )
             return
 
@@ -199,7 +199,7 @@ AI: {ai_response}
         """检索相关记忆，支持分层返回。"""
         if self.store is None:
             logger.warning(
-                "AdvancedMemoryManager no custom store available, skipping memory retrieval",
+                "AdvancedMemoryManager 没有可用的自定义存储，跳过记忆检索",
             )
             return []
 
@@ -230,7 +230,7 @@ AI: {ai_response}
         """存储记忆，支持分类和压缩。"""
         if self.store is None:
             logger.warning(
-                "AdvancedMemoryManager no custom store available, skipping memory storage",
+                "AdvancedMemoryManager 没有可用的自定义存储，跳过记忆存储",
             )
             return
 

@@ -19,7 +19,7 @@ from agent.tools.runtime_user import langgraph_runtime_user_id
 logger = logging.getLogger(__name__)
 
 _TOP_K_MIN = 1
-_TOP_K_MAX = 30
+_TOP_K_MAX = 50  # 放宽上限以支持 reranker 20-候选流程
 _TEXT_PREVIEW = 4000
 
 
@@ -37,6 +37,7 @@ def search_user_knowledge_vectors_sync(
     owner_user_id: int,
     top_k: int = 5,
     knowledge_base_id: int | None = None,
+    metadata_filters: dict[str, object] | None = None,
 ) -> str:
     """对 Milvus 做混合检索，仅返回属于 ``owner_user_id`` 的片段（可选限定知识库）。
 
@@ -65,6 +66,23 @@ def search_user_knowledge_vectors_sync(
                 operator=FilterOperator.EQ,
             )
         )
+
+    if isinstance(metadata_filters, dict):
+        allow_keys = {"brand", "product_name", "category", "doc_type", "ingredient", "file_id"}
+        for key, value in metadata_filters.items():
+            if key not in allow_keys:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                v = value.strip() if isinstance(value, str) else value
+                if isinstance(v, str) and not v:
+                    continue
+                filters.append(
+                    MetadataFilter(
+                        key=key,
+                        value=v,
+                        operator=FilterOperator.EQ,
+                    )
+                )
     meta = MetadataFilters(filters=filters)
 
     try:
@@ -128,11 +146,94 @@ def search_user_knowledge_vectors_sync(
     return "\n".join(lines).strip()
 
 
+def search_user_knowledge_vectors_raw(
+    *,
+    query: str,
+    owner_user_id: int,
+    top_k: int = 20,
+    knowledge_base_id: int | None = None,
+    metadata_filters: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
+    """``search_user_knowledge_vectors_sync`` 的原始结构版本，供 Reranker 使用。
+
+    返回 ``list[{"score": float, "text": str, "metadata": dict}]``，按 Milvus 相似度降序。
+    空结果时返回空列表（不返回字符串错误）。
+    """
+    from llamarag.local_model.embed_model import embed_model
+    from llamarag.storage.vector_store import vector_store
+
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    k = _clamp_top_k(top_k)
+    filters: list[MetadataFilter] = [
+        MetadataFilter(key="owner_user_id", value=int(owner_user_id), operator=FilterOperator.EQ),
+    ]
+    if knowledge_base_id is not None:
+        filters.append(
+            MetadataFilter(key="knowledge_base_id", value=int(knowledge_base_id), operator=FilterOperator.EQ)
+        )
+    if isinstance(metadata_filters, dict):
+        allow_keys = {"brand", "product_name", "category", "doc_type", "ingredient", "file_id"}
+        for key, value in metadata_filters.items():
+            if key not in allow_keys:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                v = value.strip() if isinstance(value, str) else value
+                if isinstance(v, str) and not v:
+                    continue
+                filters.append(MetadataFilter(key=key, value=v, operator=FilterOperator.EQ))
+
+    meta = MetadataFilters(filters=filters)
+    try:
+        q_emb = embed_model.get_query_embedding(q)
+    except Exception:
+        logger.exception("raw 向量检索：查询嵌入失败")
+        return []
+
+    vsq = VectorStoreQuery(
+        query_embedding=q_emb,
+        query_str=q,
+        similarity_top_k=k,
+        mode=VectorStoreQueryMode.HYBRID,
+        filters=meta,
+    )
+    try:
+        result = vector_store.query(vsq)
+    except Exception:
+        logger.exception("raw 向量检索：Milvus 查询失败")
+        return []
+
+    nodes = result.nodes or []
+    sims = result.similarities or []
+    out: list[dict[str, object]] = []
+    for i, node in enumerate(nodes):
+        score: float = 0.0
+        if i < len(sims) and sims[i] is not None:
+            try:
+                score = float(sims[i])
+            except (TypeError, ValueError):
+                pass
+        text = (getattr(node, "text", None) or "").strip()
+        if len(text) > _TEXT_PREVIEW:
+            text = text[:_TEXT_PREVIEW].rstrip() + "…"
+        out.append(
+            {
+                "score": score,
+                "text": text,
+                "metadata": dict(getattr(node, "metadata", None) or {}),
+            }
+        )
+    return out
+
+
 @tool
 async def milvus_search(
     query: str,
     top_k: int = 5,
     knowledge_base_id: int | None = None,
+    metadata_filters: dict[str, object] | None = None,
 ) -> str:
     """搜索向量数据库中的文档，返回与查询相关的文档。
 
@@ -156,4 +257,5 @@ async def milvus_search(
         owner_user_id=owner_user_id,
         top_k=top_k,
         knowledge_base_id=knowledge_base_id,
+        metadata_filters=metadata_filters,
     )

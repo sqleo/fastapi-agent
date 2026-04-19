@@ -29,6 +29,7 @@ async def knowledge_base_search(
     query: str,
     top_k: int = 5,
     knowledge_base_id: int | None = None,
+    metadata_filters: dict[str, object] | None = None,
 ) -> str:
     """在已入库的知识库中做语义检索，返回与问题相关的文档片段。
 
@@ -62,6 +63,7 @@ async def knowledge_base_search(
             "query": query,
             "top_k": top_k,
             "knowledge_base_id": knowledge_base_id,
+            "metadata_filters": metadata_filters,
             "owner_user_id": owner_user_id,
         }
     )
@@ -71,6 +73,7 @@ async def knowledge_base_search(
         owner_user_id=owner_user_id,
         top_k=top_k,
         knowledge_base_id=knowledge_base_id,
+        metadata_filters=metadata_filters,
     )
     _emit_custom_stream(
         {

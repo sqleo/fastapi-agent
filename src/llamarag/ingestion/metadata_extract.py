@@ -164,7 +164,12 @@ def build_ingest_text(text: str, metadata: dict[str, object]) -> str:
             prefix_lines.append(f"{key}: {value}")
             handled_keys.add(key)
     for key, value in metadata.items():
-        if key in handled_keys or key in {"faq_questions", "keywords"}:
+        if key in handled_keys or key in {"keywords", "model_entities"}:
+            continue
+        if key == "faq_questions":
+            if isinstance(value, list) and value:
+                prefix_lines.append("FAQ问题：" + "；".join(str(q) for q in value[:12]))
+                handled_keys.add(key)
             continue
         if isinstance(value, str) and value.strip():
             prefix_lines.append(f"{key}: {value}")
@@ -180,7 +185,11 @@ def build_vector_metadata(metadata: dict[str, object]) -> dict[str, object]:
     """给向量切块使用的精简 metadata，避免超过 chunk 限制。"""
     compact: dict[str, object] = {}
     for key, value in metadata.items():
-        if not value or key in {"faq_questions", "keywords"}:
+        if not value or key in {"keywords", "model_entities"}:
+            continue
+        if key == "faq_questions":
+            if isinstance(value, list) and value:
+                compact[key] = "；".join(str(q) for q in value[:12])
             continue
         if isinstance(value, str):
             compact[key] = value[:120]
