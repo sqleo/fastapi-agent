@@ -59,6 +59,7 @@ build-backend = "setuptools.build_meta"
 packages = [
     "langgraph.templates.agent",
     "agent",
+    "report",
     "schemas",
     "services",
     "shared",
@@ -74,6 +75,7 @@ packages = [
 [tool.setuptools.package-dir]
 "langgraph.templates.agent" = "src/agent"
 "agent" = "src/agent"
+"report" = "src/report"
 "schemas" = "src/schemas"
 "services" = "src/services"
 "shared" = "src/shared"
@@ -113,6 +115,7 @@ lint.ignore = [
 "src/schemas/**/*.py" = ["D415"]
 "src/services/**/*.py" = ["D415"]
 "src/utils/**/*.py" = ["D415"]
+"src/report/**/*.py" = ["D415"]
 "src/shared/embedding/http_openai.py" = ["D415"]
 "src/llamarag/**/*.py" = ["D415"]
 "src/agent/tools/**/*.py" = ["D415"]
