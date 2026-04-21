@@ -60,6 +60,10 @@ class ReportState(BaseModel):
     research_plan: list[dict[str, Any]] = Field(default_factory=list, description="调研任务列表")
     research_chunks: list[dict[str, Any]] = Field(default_factory=list, description="调研结果片段")
     evidence_map: dict[str, list[str]] = Field(default_factory=dict, description="章节ID → 引用来源列表")
+
+    # Phase 3 新增：审阅与修订
+    human_decision: Optional[dict[str, Any]] = Field(None, description="人工审核决策内容")
+    outline_approved: bool = Field(default=False, description="大纲是否通过审核")
     # 附属
     artifacts: Optional[list[dict]] = Field(default_factory=list, description="生成过程中的中间产物列表")
     token_usage: Optional[dict[str, int]] = Field(default_factory=dict, description="Token 使用统计")

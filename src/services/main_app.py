@@ -15,6 +15,7 @@ from services.routers.llm_global_setting import router as llm_global_setting_rou
 from services.routers.llm_vendor import router as llm_vendor_router
 from services.routers.llamarag import router as llamarag_router
 from services.routers.monitor import router as monitor_router
+from services.routers.report import router as report_router
 
 app = create_app()
 
@@ -31,6 +32,7 @@ v1.include_router(metadata_field_router)
 v1.include_router(llm_vendor_router)
 v1.include_router(llm_global_setting_router)
 v1.include_router(monitor_router)
+v1.include_router(report_router)
 app.include_router(v1)
 
 
