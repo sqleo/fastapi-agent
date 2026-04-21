@@ -5,12 +5,6 @@ from report.llm import create_llm
 from report.state import OutIntent, ReportState
 from report.utils.emit_trace_event import emit_trace_event
 
-class IntentState(BaseModel):
-    """用户意图状态"""
-    user_query: str = Field(..., description="用户输入的需求")
-    intent: OutIntent | None = Field(None, description="结构化用户意图")
-
-
 chat_prompt = ChatPromptTemplate.from_messages([
     ("system", (
         "你是一个专业的报告需求分析专家。请从用户输入中提取以下字段：\n"

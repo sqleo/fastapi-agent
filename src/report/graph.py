@@ -5,6 +5,8 @@ from pathlib import Path
 from langgraph.graph import END, START, StateGraph
 from report.nodes.intent import intent_node
 from report.nodes.outliner import outliner_node
+from report.nodes.planner import planner_node
+from report.nodes.researcher import researcher_node
 from report.nodes.writer import writer_node
 from report.state import ReportState
 
@@ -12,10 +14,14 @@ from report.state import ReportState
 def build_report_graph() -> StateGraph[ReportState]:
     graph = StateGraph(ReportState)
     graph.add_node("intent", intent_node)
+    graph.add_node("planner", planner_node)
+    graph.add_node("researcher", researcher_node)
     graph.add_node("outliner", outliner_node)
     graph.add_node("writer",  writer_node)
     graph.add_edge(START, "intent")
-    graph.add_edge("intent", "outliner")
+    graph.add_edge("intent", "planner")
+    graph.add_edge("planner", "researcher")
+    graph.add_edge("researcher", "outliner")
     graph.add_edge("outliner", "writer")
     graph.add_edge("writer", END)
     return graph.compile(name="report_graph")

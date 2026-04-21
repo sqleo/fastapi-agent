@@ -1,4 +1,5 @@
-from datetime import time
+
+import time
 
 
 def emit_trace_event(event_name: str, payload: dict):
