@@ -14,7 +14,7 @@ async def human_review_node(state: ReportState, config: RunnableConfig) -> dict:
         options=_ALLOWED,
         metadata={"node_name": "human_review"},
     )
-    raw = interrupt(payload.__dict__)
+    raw = interrupt(payload.model_dump())
     decision = parse_decision(raw, allowed_actions=_ALLOWED)
     # 如果用户选择重新规划（replan），则回滚到 planner 节点并重跑
     if decision.action == "replan":

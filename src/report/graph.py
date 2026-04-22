@@ -41,6 +41,7 @@ def build_report_graph() -> StateGraph[ReportState]:
     graph.add_edge("intent", "planner")
     graph.add_edge("planner", "researcher")
     graph.add_edge("researcher", "outliner")
+    graph.add_edge("outliner", "human_review")
     graph.add_conditional_edges(
             "human_review",
             route_after_review,
@@ -50,7 +51,6 @@ def build_report_graph() -> StateGraph[ReportState]:
                 "planner": "planner",
             }
         )
-    graph.add_edge("outliner", "writer")
     graph.add_edge("writer", END)
     return graph.compile(
         name="report_graph",

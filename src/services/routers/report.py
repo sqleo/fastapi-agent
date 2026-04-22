@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 from uuid import uuid4
@@ -13,7 +14,9 @@ from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
 
 from report.graph import build_report_graph
+from report.utils.interrupt_payload import interrupt_payload
 from utils.auth_deps import get_current_user
+from utils.json import safe_serialize, sse_json
 from utils.response import SuccessResponse, ok, fail, BizCode
 
 logger = logging.getLogger("services.routers.report")
@@ -72,46 +75,65 @@ async def generate_report(
     }
 
     async def event_generator():
-        # 节点友好名称映射
-        node_names = {
-            "intent": "解析用户意图",
-            "researcher": "知识库调研",
-            "outliner": "生成报告大纲",
-            "planner": "规划写作路线",
-            "writer": "撰写报告内容",
-            "human_review": "等待人工审核",
-        }
-        
         try:
-            # 开始事件
-            yield f"data: {{\"type\": \"start\", \"thread_id\": \"{tid}\"}}\n\n"
-            
+            yield sse_json({"type": "start", "thread_id": tid})
             # 流式执行整个 graph
-            async for event in report_graph.astream(
+            async for event in report_graph.astream_events(
                 {"user_query": request.user_query},
                 config=config,
-                stream_mode="updates",
+                version="v2",
             ):
-                for node_name, node_output in event.items():
-                    # 节点开始消息
-                    node_title = node_names.get(node_name, node_name)
-                    yield f"data: {{\"type\": \"message\", \"message\": \"🔄 开始{node_title}\"}}\n\n"
-                    
-                    # 节点数据
-                    yield f"data: {{\"type\": \"node_data\", \"node\": \"{node_name}\", \"data\": {node_output}}}\n\n"
-                    
-                    # 节点完成消息
-                    yield f"data: {{\"type\": \"message\", \"message\": \"✅ {node_title}完成\"}}\n\n"
+                kind = event["event"]
+                event_name = event["name"]
+                metadata = event.get("metadata", {})
+                node_name = metadata.get("langgraph_node")
+                output = event.get("data", {}).get("output")
+                if kind == "on_chain_start" and node_name:
+                    # 拿到节点名称
+                    node_name = event["metadata"]["langgraph_node"]
+                    yield sse_json({
+                        "type": "node_start",
+                        "node": node_name,
+                        "output": None,
+                    })
+                elif kind == "on_chain_end" and node_name:
+                    yield sse_json({
+                        "type": "node_end",
+                        "node": node_name,
+                        "output": safe_serialize(output),
+                    })
+                elif kind == "on_tool_start":
+                    yield sse_json({
+                        "type": "tool_start",
+                        "tool": event_name,
+                        "input": safe_serialize(output),
+                    })
+                elif kind == "on_tool_end":
+                    yield sse_json({
+                        "type": "tool_end",
+                        "tool": event_name,
+                        "output": safe_serialize(output),
+                    })
+                elif kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield sse_json({
+                            "type": "message",
+                            "data": {"content": content}
+                        })
+            interrupt_data = await interrupt_payload(report_graph, config)
+            if interrupt_data:
+                yield sse_json({
+                    "type": "interrupted",
+                    "thread_id": tid,
+                    "payload": interrupt_data, # 包装在 payload 里方便前端解析
+                })
+            else:
+                yield sse_json({"type": "done", "thread_id": tid})
 
-            # 执行完成
-            yield f"data: {{\"type\": \"done\", \"thread_id\": \"{tid}\"}}\n\n"
-
-        except Interrupt as e:
-            yield f"data: {{\"type\": \"interrupted\", \"node\": \"human_review\", \"payload\": {e.value}}}\n\n"
-            
         except Exception as e:
             logger.exception("报告生成失败")
-            yield f"data: {{\"type\": \"error\", \"message\": \"{str(e)}\"}}\n\n"
+            yield sse_json({"type": "error", "message": str(e)})
 
     return StreamingResponse(
         event_generator(),
@@ -119,6 +141,7 @@ async def generate_report(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no", # nginx 反向代理时禁用缓冲，确保实时输出
         },
     )
 

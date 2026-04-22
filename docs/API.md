@@ -42,6 +42,16 @@
 
 依赖 **LangGraph 服务**（环境变量 `LANGGRAPH_API_URL`，默认 `http://localhost:8123`）。通用助手聊天通过 SDK 调用远程图 `assistant_id="agent"`。
 
+---
+
+## 报告生成  `/report`
+
+Report Agent 提供自动化报告生成，支持中断审核、流式输出、时间旅行回滚等功能。
+
+详见：[Report Agent API 详细文档](./REPORT_API.md)
+
+---
+
 ### 工具列表与开关（默认：未保存偏好 = **全部工具开启**）
 
 **基础工具（不返回前端）**：在代码里用装饰器 `@hidden_from_client` 标注（写在 `@tool` 上方），或对第三方创建的 Tool 调用 `hidden_from_client(tool_obj)`。这些工具不会出现在 `GET /agent/tools`；`enabled_tools` 在服务端会与其 **取并集**，避免被关闭。
