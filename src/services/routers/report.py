@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
+from pydantic_core import to_json
 
 from report.graph import build_report_graph
 from report.utils.interrupt_payload import interrupt_payload
@@ -84,43 +85,33 @@ async def generate_report(
                 version="v2",
             ):
                 kind = event["event"]
+                # formatted_data = to_json(event, indent=2).decode("utf-8")
                 event_name = event["name"]
                 metadata = event.get("metadata", {})
                 node_name = metadata.get("langgraph_node")
                 output = event.get("data", {}).get("output")
-                if kind == "on_chain_start" and node_name:
-                    # 拿到节点名称
-                    node_name = event["metadata"]["langgraph_node"]
+                if kind == "on_chain_start" and node_name and event_name == node_name:
+                    # 所有节点的开始事件都输出，让前端展示进度
                     yield sse_json({
                         "type": "node_start",
                         "node": node_name,
-                        "output": None,
                     })
-                elif kind == "on_chain_end" and node_name:
+                elif kind == "on_chain_end" and node_name and event_name == node_name:
+                    # 所有节点的结束事件都输出，但只在 writer 节点时带 output
                     yield sse_json({
                         "type": "node_end",
                         "node": node_name,
-                        "output": safe_serialize(output),
-                    })
-                elif kind == "on_tool_start":
-                    yield sse_json({
-                        "type": "tool_start",
-                        "tool": event_name,
-                        "input": safe_serialize(output),
-                    })
-                elif kind == "on_tool_end":
-                    yield sse_json({
-                        "type": "tool_end",
-                        "tool": event_name,
-                        "output": safe_serialize(output),
+                        "output": safe_serialize(output) if node_name == "writer" else None,
                     })
                 elif kind == "on_chat_model_stream":
-                    content = event["data"]["chunk"].content
-                    if content:
-                        yield sse_json({
-                            "type": "message",
-                            "data": {"content": content}
-                        })
+                    # 只把 writer 节点的 token 流推给前端，其他节点（intent/planner/outliner）的中间 token 过滤掉
+                    if node_name == "writer":
+                        content = event["data"]["chunk"].content
+                        if content:
+                            yield sse_json({
+                                "type": "message",
+                                "data": {"content": content}
+                            })
             interrupt_data = await interrupt_payload(report_graph, config)
             if interrupt_data:
                 yield sse_json({
@@ -146,71 +137,101 @@ async def generate_report(
     )
 
 
-@router.post("/resume", response_model=SuccessResponse[GenerateReportResponse])
+@router.post("/resume")
 async def resume_report(
     request: ResumeReportRequest,
     user = Depends(get_current_user),
 ):
-    user_id: int = user.id
-    """恢复被中断的报告任务"""
+    """恢复被中断的报告任务（流式输出）"""
+    tid = request.thread_id
     config = {
         "configurable": {
-            "thread_id": request.thread_id,
-            "user_id": user_id,
+            "thread_id": tid,
+            "user_id": user.id,
             "graph": report_graph,
         }
     }
 
     # 验证状态是否存在
     state = await report_graph.aget_state(config)
-    if state is None:
+    if state is None or not state.values:
         body = fail(
             code=BizCode.NOT_FOUND,
-            message=f"会话 {request.thread_id} 不存在",
+            message=f"会话 {tid} 不存在或已过期",
         )
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content=body.model_dump(),
         )
 
-    try:
-        resume_data = {
-            "action": request.action,
-            **(request.updates or {}),
-        }
+    async def event_generator():
+        try:
+            yield sse_json({"type": "resume_start", "thread_id": tid})
+            
+            resume_data = {
+                "action": request.action,
+                **(request.updates or {}),
+            }
 
-        result = await report_graph.ainvoke(
-            Command(resume=resume_data),
-            config=config,
-        )
+            # 使用 astream_events 流式恢复执行
+            async for event in report_graph.astream_events(
+                Command(resume=resume_data),
+                config=config,
+                version="v2",
+            ):
+                kind = event["event"]
+                event_name = event["name"]
+                metadata = event.get("metadata", {})
+                node_name = metadata.get("langgraph_node")
+                output = event.get("data", {}).get("output")
 
-        return ok(
-            data=GenerateReportResponse(
-                thread_id=request.thread_id,
-                status="completed",
-                result=result,
-            )
-        )
+                if kind == "on_chain_start" and node_name and event_name == node_name:
+                    # 所有节点的开始事件都输出，让前端展示进度
+                    yield sse_json({
+                        "type": "node_start",
+                        "node": node_name,
+                    })
+                elif kind == "on_chain_end" and node_name and event_name == node_name:
+                    # 所有节点的结束事件都输出，但只在 writer 节点时带 output
+                    yield sse_json({
+                        "type": "node_end",
+                        "node": node_name,
+                        "output": safe_serialize(output) if node_name == "writer" else None,
+                    })
+                elif kind == "on_chat_model_stream":
+                    # 只把 writer 节点的 token 流推给前端，其他节点（intent/planner/outliner）的中间 token 过滤掉
+                    if node_name == "writer":
+                        content = event["data"]["chunk"].content
+                        if content:
+                            yield sse_json({
+                                "type": "message",
+                                "data": {"content": content}
+                            })
 
-    except Interrupt as e:
-        return ok(
-            data=GenerateReportResponse(
-                thread_id=request.thread_id,
-                status="interrupted",
-                interrupt_payload=e.value,
-            )
-        )
+            # 检查是否有新的中断
+            interrupt_data = await interrupt_payload(report_graph, config)
+            if interrupt_data:
+                yield sse_json({
+                    "type": "interrupted",
+                    "thread_id": tid,
+                    "payload": interrupt_data,
+                })
+            else:
+                yield sse_json({"type": "done", "thread_id": tid})
 
-    except Exception as e:
-        logger.exception("恢复报告失败")
-        body = fail(
-            code=BizCode.INTERNAL_ERROR,
-            message=f"恢复报告失败: {str(e)}",
-        )
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=body.model_dump(),
-        )
+        except Exception as e:
+            logger.exception("恢复报告失败")
+            yield sse_json({"type": "error", "message": str(e)})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/status/{thread_id}", response_model=SuccessResponse[ReportStatusResponse])
@@ -242,12 +263,15 @@ async def get_report_status(
     else:
         status = "interrupted" if "human_review" in state.next else "running"
 
+    # 安全序列化 state，避免 Pydantic 序列化警告
+    serialized_state = safe_serialize(state.values) if state.values else None
+
     return ok(
         data=ReportStatusResponse(
             thread_id=thread_id,
             status=status,
             current_node=state.next,
-            state=state.values,
+            state=serialized_state,
         )
     )
 

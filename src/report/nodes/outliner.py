@@ -62,7 +62,11 @@ async def outliner_node(state: ReportState) -> dict:
     try:
         chains = RunnableLambda(format_for_outline) | chat_prompt | llm.with_structured_output(OutlineResult)
         results: OutlineResult = await chains.ainvoke(state)
-        outline = [s.model_dump() for s in results.sections]
+        # 确保每个 section 都被正确序列化为 dict，避免 Pydantic 序列化警告
+        outline = []
+        for section in results.sections:
+            section_dict = section.model_dump(mode='json')  # 使用 mode='json' 确保所有字段都是 JSON 可序列化的
+            outline.append(section_dict)
         print(f"✅ 大纲生成完成: {len(outline)} 个章节")
     except Exception as e:
         print(f"❌ 大纲生成失败: {e}")
