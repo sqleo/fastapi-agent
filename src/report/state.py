@@ -6,10 +6,14 @@ from pydantic import BaseModel, Field
 class OutIntent(BaseModel):
     """结构化用户意图 在 intent_node 中生成并存储在 ReportState 中"""
     topic: str = Field(..., description="报告主题：简洁明了地描述报告的核心内容，例如：2025年中国新能源汽车市场分析")
-    scope: str = Field(..., description="报告范围：全国/区域/企业/技术等")
-    depth: str = Field(..., description="报告深度: 行业概览/深度研究/技术拆解/数据统计")
-    output_format: str = Field(..., description="输出格式: Markdown/PDF/PPT/Word")
-    industry: str = Field(..., description="行业标签：例如：新能源汽车/半导体/医疗等")
+    report_type: str = Field('-', description="报告类型：竞争格局分析/市场趋势报告/技术发展趋势报告/项目可行性研究报告/供应链梳理等")
+    scope: str = Field('-', description="报告范围：全国/区域/企业/技术等")
+    time_range: str = Field('-', description="报告时间范围：例如：2024年/2024-2025年/2025年及以后")
+    # 高级参数
+    depth: str = Field('-', description="报告深度: 1-2章/3-4章/5-8章/8-12章")
+    style_instruction: str = Field('-', description="写作风格：专业咨询/学术研究/简洁专业/数据翔实")
+    output_format: str = Field('-', description="输出格式: Markdown/PDF/PPT/Word")
+    industry: str = Field('-', description="行业标签：例如：新能源汽车/半导体/医疗等")
 
 
 class OutlineSection(BaseModel):
@@ -47,14 +51,15 @@ class ReportState(BaseModel):
     """报告生成状态，全局状态管理器（ReportStateManager）维护该状态并在各节点间传递。"""
     # 输入
     user_query: str = Field(..., description="用户输入的需求")
+    stage: str = Field("intent", description="当前阶段：intent/outline/research/review/writing/complete")
     # 身份与追踪
-    report_id: Optional[str] = Field(None, description="本地任务唯一 ID")
-    user_id: Optional[int] = Field(None, description="用户ID")
+    report_id: Optional[str] = Field(default=None, description="本地任务唯一 ID")
+    user_id: Optional[int] = Field(default=None, description="用户ID")
     # Phase 1 产出
-    intent: Optional[OutIntent] = Field(None, description="结构化意图）")
-    outline: Optional[list[dict[str, Any]]] = Field(None, description="大纲章节列表（outliner_node 产出）")
-    draft: Optional[str] = Field(None, description="初稿（writer_node 产出）")
-    final_report: Optional[str] = Field(None, description="最终报告内容")
+    intent: Optional[OutIntent] = Field(default=None, description="结构化意图）")
+    outline: Optional[list[dict[str, Any]]] = Field(default=None, description="大纲章节列表（outliner_node 产出）")
+    draft: Optional[str] = Field(default=None, description="初稿（writer_node 产出）")
+    final_report: Optional[str] = Field(default=None, description="最终报告内容")
     
     # Phase 2 新增：调研
     research_plan: list[dict[str, Any]] = Field(default_factory=list, description="调研任务列表")
@@ -62,7 +67,7 @@ class ReportState(BaseModel):
     evidence_map: dict[str, list[str]] = Field(default_factory=dict, description="章节ID → 引用来源列表")
 
     # Phase 3 新增：审阅与修订
-    human_decision: Optional[dict[str, Any]] = Field(None, description="人工审核决策内容")
+    human_decision: Optional[dict[str, Any]] = Field(default=None, description="人工审核决策内容")
     outline_approved: bool = Field(default=False, description="大纲是否通过审核")
     # 附属
     artifacts: Optional[list[dict]] = Field(default_factory=list, description="生成过程中的中间产物列表")

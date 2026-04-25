@@ -1,11 +1,15 @@
-from langgraph.types import interrupt
+from typing import Any
+
+from langgraph.types import Command, interrupt
 from infra.langgraph.control import build_payload, parse_decision, rollback_to
 from report.state import ReportState
 from langchain_core.runnables import RunnableConfig
 
 _ALLOWED = ["confirm", "revise", "replan"]
 
-async def human_review_node(state: ReportState, config: RunnableConfig) -> dict:
+async def human_review_node(
+    state: ReportState, config: RunnableConfig
+) -> dict[str, Any] | Command:
     """人工审核节点，供用户对生成的大纲报告内容进行审核和修改。"""
     payload = build_payload(
         message="请确认报告大纲",
@@ -18,12 +22,31 @@ async def human_review_node(state: ReportState, config: RunnableConfig) -> dict:
     # 如果用户选择重新规划（replan），则回滚到 planner 节点并重跑
     if decision.action == "replan":
         return await rollback_to(
-            config=config,        # 直接透传，不需要自己解析
+            config=config,  
             target_node="planner",
             extra_updates={"user_query": decision.updates["new_query"]}
             if decision.updates.get("new_query") else None,
         )
     result: dict = {"human_decision": decision.payload}
-    if decision.action == "revise" and "updated_outline" in decision.updates:
-        result["outline"] = decision.updates["updated_outline"]
+    if decision.action == "revise" and "outline" in decision.updates:
+        result["outline"] = decision.updates["outline"]
+    return result
+
+
+_ALLOWED_INTENT = ["confirm", "revise"]
+
+async def human_review_intent_node(state: ReportState, config: RunnableConfig) -> dict:
+    """人工审核节点，供用户对生成的意图进行确认和修改"""
+    payload = build_payload(
+        message="请确认报告意图",
+        data={"intent": state.intent.model_dump() if state.intent else {}},
+        options=_ALLOWED_INTENT,
+        metadata={"node_name": "human_review_intent"},
+    )
+    raw = interrupt(payload.model_dump())
+    decision = parse_decision(raw, allowed_actions=_ALLOWED_INTENT)
+    result: dict = {"human_decision": decision.payload}
+    print("最终结果: ", result)
+    if decision.action == "revise" and "intent" in decision.updates:
+        result["intent"] = decision.updates["intent"]
     return result

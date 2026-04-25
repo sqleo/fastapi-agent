@@ -1,5 +1,7 @@
 import logging
-from typing import Any, Optional
+from typing import Optional
+
+from infra.langgraph.control.interrupt import extract_interrupt_payload_from_state
 
 logger = logging.getLogger("report.interrupt_payload")
 
@@ -30,36 +32,14 @@ async def interrupt_payload(graph, config) -> Optional[dict]:
             # 没有待执行节点，说明流程已完成
             return None
         
-        # 检查是否有人工审核节点
-        if "human_review" in state_snapshot.next:
-            # 尝试从 values 中获取中断数据
-            values = state_snapshot.values or {}
-            
-            # 检查是否有中断 payload 在 values 中
-            if "interrupt_payload" in values:
-                payload = values["interrupt_payload"]
-                return {
-                    "type": "interrupt",
-                    "message": payload.get("message", "需要用户输入"),
-                    "data": payload.get("data", {}),
-                    "options": payload.get("options", []),
-                    "metadata": payload.get("metadata", {}),
-                }
-            
-            # 尝试从 checkpoint 的 metadata 中获取中断信息
-            # LangGraph 的中断信息通常存储在 channel 中
-            return {
-                "type": "interrupt",
-                "message": "请确认报告大纲",
-                "data": values.get("outline", []),
-                "options": ["confirm", "revise", "replan"],
-                "metadata": {"node_name": "human_review"},
-            }
-        
-        # 其他情况，可能是 recursion_limit 或其他原因导致的暂停
+        payload = extract_interrupt_payload_from_state(state_snapshot)
+        if payload:
+            return payload
+
+        # 仍有 next 但未提取到 interrupt value，给出可定位信息
         return {
             "type": "error",
-            "message": "生成过程中发生了意外中断，请稍后重试",
+            "message": f"生成过程中发生了意外中断，next = {list(state_snapshot.next or [])}",
             "options": ["retry"],
         }
         

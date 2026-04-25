@@ -18,6 +18,7 @@ from report.graph import build_report_graph
 from report.utils.interrupt_payload import interrupt_payload
 from utils.auth_deps import get_current_user
 from utils.json import safe_serialize, sse_json
+from utils.report_sse import EventHandler, EventPayload, iter_report_sse_events
 from utils.response import SuccessResponse, ok, fail, BizCode
 
 logger = logging.getLogger("services.routers.report")
@@ -25,6 +26,46 @@ logger = logging.getLogger("services.routers.report")
 router = APIRouter(tags=["Report"], prefix="/report")
 
 report_graph = build_report_graph()
+
+
+def _identity_event_handler(payload: EventPayload) -> EventPayload:
+    return payload
+
+
+def _build_message_filter_handler(allowed_nodes: set[str] | None) -> EventHandler:
+    """按节点过滤 message 事件，None 表示不过滤。"""
+    def _handler(payload: EventPayload) -> EventPayload | None:
+        if payload.get("type") != "message":
+            return payload
+        if allowed_nodes is None:
+            return payload
+        node = payload.get("node")
+        if isinstance(node, str) and node in allowed_nodes:
+            return payload
+        return None
+
+    return _handler
+
+
+def _resume_node_alias_handler(payload: EventPayload) -> EventPayload:
+    """兼容历史字段：resume 流保留 node。"""
+    if payload.get("type") != "node":
+        return payload
+    state = payload.get("state")
+    if state == "running":
+        return {
+            "type": "node",
+            "state": "running",
+            "node": payload.get("node"),
+        }
+    if state == "completed":
+        return {
+            "type": "node",
+            "state": "completed",
+            "node": payload.get("node"),
+            "output": payload.get("output"),
+        }
+    return payload
 
 
 class GenerateReportRequest(BaseModel):
@@ -47,7 +88,7 @@ class ResumeReportRequest(BaseModel):
     thread_id: str = Field(..., description="会话 ID")
     action: str = Field(..., description="用户选择的操作: confirm / revise / replan")
     updates: Optional[dict[str, Any]] = Field(None, description="额外更新数据，如修改后的大纲")
-
+    metadata: Optional[dict[str, Any]] = Field(None, description="元数据，如节点名称")
 
 class ReportStatusResponse(BaseModel):
     """报告状态查询响应"""
@@ -78,40 +119,20 @@ async def generate_report(
     async def event_generator():
         try:
             yield sse_json({"type": "start", "thread_id": tid})
-            # 流式执行整个 graph
-            async for event in report_graph.astream_events(
+            events = report_graph.astream_events(
                 {"user_query": request.user_query},
                 config=config,
                 version="v2",
+            )
+            generate_handlers: dict[str, EventHandler] = {
+                "message": _build_message_filter_handler({"writer"}),
+            }
+            async for sse_event in iter_report_sse_events(
+                events,
+                handlers=generate_handlers,
+                default_handler=_identity_event_handler,
             ):
-                kind = event["event"]
-                # formatted_data = to_json(event, indent=2).decode("utf-8")
-                event_name = event["name"]
-                metadata = event.get("metadata", {})
-                node_name = metadata.get("langgraph_node")
-                output = event.get("data", {}).get("output")
-                if kind == "on_chain_start" and node_name and event_name == node_name:
-                    # 所有节点的开始事件都输出，让前端展示进度
-                    yield sse_json({
-                        "type": "node_start",
-                        "node": node_name,
-                    })
-                elif kind == "on_chain_end" and node_name and event_name == node_name:
-                    # 所有节点的结束事件都输出，但只在 writer 节点时带 output
-                    yield sse_json({
-                        "type": "node_end",
-                        "node": node_name,
-                        "output": safe_serialize(output) if node_name == "writer" else None,
-                    })
-                elif kind == "on_chat_model_stream":
-                    # 只把 writer 节点的 token 流推给前端，其他节点（intent/planner/outliner）的中间 token 过滤掉
-                    if node_name == "writer":
-                        content = event["data"]["chunk"].content
-                        if content:
-                            yield sse_json({
-                                "type": "message",
-                                "data": {"content": content}
-                            })
+                yield sse_event
             interrupt_data = await interrupt_payload(report_graph, config)
             if interrupt_data:
                 yield sse_json({
@@ -166,48 +187,31 @@ async def resume_report(
 
     async def event_generator():
         try:
-            yield sse_json({"type": "resume_start", "thread_id": tid})
+            yield sse_json({"type": "start", "thread_id": tid})
             
             resume_data = {
                 "action": request.action,
                 **(request.updates or {}),
+                "metadata": request.metadata or {},
+                "thread_id": tid,
             }
 
             # 使用 astream_events 流式恢复执行
-            async for event in report_graph.astream_events(
+            events = report_graph.astream_events(
                 Command(resume=resume_data),
                 config=config,
                 version="v2",
+            )
+            resume_handlers: dict[str, EventHandler] = {
+                "node": _resume_node_alias_handler,
+                "message": _build_message_filter_handler({"writer"}),
+            }
+            async for sse_event in iter_report_sse_events(
+                events,
+                handlers=resume_handlers,
+                default_handler=_identity_event_handler,
             ):
-                kind = event["event"]
-                event_name = event["name"]
-                metadata = event.get("metadata", {})
-                node_name = metadata.get("langgraph_node")
-                output = event.get("data", {}).get("output")
-
-                if kind == "on_chain_start" and node_name and event_name == node_name:
-                    # 所有节点的开始事件都输出，让前端展示进度
-                    yield sse_json({
-                        "type": "node_start",
-                        "node": node_name,
-                    })
-                elif kind == "on_chain_end" and node_name and event_name == node_name:
-                    # 所有节点的结束事件都输出，但只在 writer 节点时带 output
-                    yield sse_json({
-                        "type": "node_end",
-                        "node": node_name,
-                        "output": safe_serialize(output) if node_name == "writer" else None,
-                    })
-                elif kind == "on_chat_model_stream":
-                    # 只把 writer 节点的 token 流推给前端，其他节点（intent/planner/outliner）的中间 token 过滤掉
-                    if node_name == "writer":
-                        content = event["data"]["chunk"].content
-                        if content:
-                            yield sse_json({
-                                "type": "message",
-                                "data": {"content": content}
-                            })
-
+                yield sse_event
             # 检查是否有新的中断
             interrupt_data = await interrupt_payload(report_graph, config)
             if interrupt_data:

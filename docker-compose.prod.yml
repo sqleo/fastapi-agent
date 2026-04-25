@@ -77,7 +77,7 @@ services:
   # PostgreSQL（生产）
   # =============================================
   postgres:
-    image: pgvector/pgvector:16-pgdg
+    image: pgvector/pgvector:pg16-trixie
     container_name: langgraph-postgres
     environment:
       POSTGRES_USER: postgres
