@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent.core.graph_service import graph_with_checkpoint
-from agent.memory.graph_checkpoint import delete_graph_service_conversation
+from infra.langgraph import delete_graph_service_conversation
 from schemas.chat_schema import DeleteChatResponse
 from services.routers.agent import (
     ChatResponse,

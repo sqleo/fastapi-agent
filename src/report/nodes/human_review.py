@@ -1,6 +1,5 @@
 from langgraph.types import interrupt
-from report.control.interrupt import build_payload, parse_decision
-from report.control.time_travel import rollback_to
+from infra.langgraph.control import build_payload, parse_decision, rollback_to
 from report.state import ReportState
 from langchain_core.runnables import RunnableConfig
 

@@ -24,17 +24,9 @@ DEST_PREFIX="${REGISTRY}/sqliu"
 
 echo "==> 开始构建镜像..."
 
-# ====================== 构建 LangGraph 镜像 ======================
-echo "==> 正在构建 LangGraph 镜像 (使用 Dockerfile.langgraph) ..."
-DOCKER_BUILDKIT=1 docker build \
-  --platform "${DOCKER_DEFAULT_PLATFORM}" \
-  -f Dockerfile.langgraph \
-  -t langgraph-agent:latest \
-  .
-
 # ====================== 构建 FastAPI 镜像 ======================
 # FastAPI 构建使用 docker-compose.dev.yml（如需改用其它 compose 文件，改下方 -f 路径即可）
-echo "==> 正在构建 FastAPI 镜像 (使用 Dockerfile.fastapi) ..."
+echo "==> 正在构建 FastAPI 镜像 (使用 Dockerfile) ..."
 DOCKER_BUILDKIT=1 docker compose \
   -f docker-compose.dev.yml \
   build \
@@ -62,27 +54,20 @@ if [[ -z "${FASTAPI_LOCAL}" ]]; then
   exit 1
 fi
 
-echo "==> 构建完成"
-echo "    LangGraph 本地镜像: langgraph-agent:latest"
 echo "    FastAPI   本地镜像: ${FASTAPI_LOCAL}"
 
 # ====================== 打标签 ======================
 echo "==> 打标签并准备推送到 TCR ..."
-docker tag langgraph-agent:latest "${DEST_PREFIX}/langgraph-agent:${TAG}"
 docker tag "${FASTAPI_LOCAL}" "${DEST_PREFIX}/fastapi:${TAG}"
 
 # ====================== 推送 ======================
 echo "==> 开始推送镜像到 ${DEST_PREFIX} ..."
-docker push "${DEST_PREFIX}/langgraph-agent:${TAG}"
 docker push "${DEST_PREFIX}/fastapi:${TAG}"
 
 echo "========================================"
 echo "✅ 推送完成！"
 echo ""
 echo "在生产环境的 docker-compose.prod.yml 中可使用以下镜像："
-echo "  langgraph:"
-echo "    image: ${DEST_PREFIX}/langgraph-agent:${TAG}"
-echo ""
 echo "  fastapi:"
 echo "    image: ${DEST_PREFIX}/fastapi:${TAG}"
 echo ""

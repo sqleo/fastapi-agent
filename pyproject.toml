@@ -17,7 +17,6 @@ dependencies = [
     "httpx>=0.27.0",
     "langgraph>=1.0.0",
     "langgraph-cli[inmem]>=0.4.14",
-    "langgraph-sdk>=0.1.0",
     "python-dotenv>=1.0.1",
     "sqlalchemy>=2.0.48",
     "sqlmodel>=0.0.37",
@@ -57,7 +56,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = [
-    "langgraph.templates.agent",
     "agent",
     "report",
     "schemas",
@@ -73,7 +71,6 @@ packages = [
     "llamarag.worker",
 ]
 [tool.setuptools.package-dir]
-"langgraph.templates.agent" = "src/agent"
 "agent" = "src/agent"
 "report" = "src/report"
 "schemas" = "src/schemas"
@@ -120,9 +117,6 @@ lint.ignore = [
 "src/llamarag/**/*.py" = ["D415"]
 "src/agent/tools/**/*.py" = ["D415"]
 "src/utils/llm_init.py" = ["D100"]
-"src/agent/memory_turns.py" = ["D415", "D103"]
-"src/agent/langmem_setup.py" = ["D415", "D103"]
-"src/agent/context_window_middleware.py" = ["D415"]
 "configs/**/*.py" = ["D415"]
 "src/monitor/**/*.py" = ["D415"]
 [tool.ruff.lint.pydocstyle]

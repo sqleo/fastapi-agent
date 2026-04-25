@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from models import LlmVendorModel
 
 from services.controllers.llm_vendor_model_catalog import (
     VENDOR_MODEL_CATALOG,

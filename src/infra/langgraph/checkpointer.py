@@ -1,6 +1,6 @@
-"""LangGraph ``checkpointer``：与 ``langgraph.json`` 中 Postgres 对齐，无库时回退内存。
+"""LangGraph ``checkpointer``：基于 Postgres 持久化，无库时回退内存。
 
-使用 ``POSTGRES_URI``（与 LangGraph API / ``langgraph dev`` 一致）。可选
+使用 ``POSTGRES_URI``。可选
 ``LANGGRAPH_CHECKPOINT_POSTGRES_URI`` 单独指定 checkpoint 库。
 
 说明：同步的 ``PostgresSaver`` 未实现 ``aget_tuple`` / ``aput`` / ``aput_writes``，
@@ -29,7 +29,7 @@ from langgraph.checkpoint.base import (
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres import PostgresSaver
 
-logger = logging.getLogger("agent.memory.graph_checkpoint")
+logger = logging.getLogger("infra.langgraph.checkpointer")
 
 _checkpointer: BaseCheckpointSaver | None = None
 
@@ -120,13 +120,13 @@ def get_graph_checkpointer() -> BaseCheckpointSaver:
         _checkpointer = MemorySaver()
         logger.warning(
             "POSTGRES_URI 未设置：graph checkpoint 使用进程内内存，重启后对话状态丢失。"
-            "生产环境请设置 POSTGRES_URI（与 langgraph.json checkpointer 一致）。"
+            "生产环境请设置 POSTGRES_URI。"
         )
 
     return _checkpointer
 
 
 async def delete_graph_service_conversation(thread_id: str) -> None:
-    """删除直连 ``graph_service`` 在 checkpoint 中该 ``thread_id`` 的数据（对齐 SDK ``threads.delete`` 对会话状态的清理）。"""
+    """删除该 ``thread_id`` 的会话状态数据（对齐 SDK ``threads.delete``）。"""
     cp = get_graph_checkpointer()
     await cp.adelete_thread(thread_id)

@@ -284,7 +284,7 @@ async def rollback_report(
 ):
     user_id: int = user.id
     """回滚报告到指定节点"""
-    from report.control.time_travel import rollback_to
+    from infra.langgraph.control import rollback_to
 
     config = {
         "configurable": {

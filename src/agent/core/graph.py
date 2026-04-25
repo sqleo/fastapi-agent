@@ -14,10 +14,10 @@ from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agent.control.interrupt import token_level_pause_middleware
 from agent.injection import inject_llm_from_global_settings
 from agent.memory.context_window import short_term_message_window
-from agent.memory.langmem import get_langgraph_store
+from infra.langgraph import get_graph_checkpointer, get_langgraph_store
+from infra.langgraph.control.interrupt import token_level_pause_middleware
 
 # 中间件（已按功能拆分到 middleware/ 和 injection/）
 from agent.middleware import filter_tools_by_enabled_config
@@ -67,7 +67,8 @@ graph = create_agent(
     _placeholder_model,
     tools=tools,
     system_prompt=_AGENT_SYSTEM_PROMPT,
-    store=get_langgraph_store(),           # LangGraph API 会忽略自定义 store，使用平台自带
+    checkpointer=get_graph_checkpointer(),
+    store=get_langgraph_store(),
     middleware=[
         strip_tool_calls_not_in_enabled_list,
         filter_tools_by_enabled_config,

@@ -26,8 +26,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
-from agent.memory.graph_checkpoint import get_graph_checkpointer
-from agent.memory.langmem import get_langgraph_store
+from infra.langgraph import get_graph_checkpointer, get_langgraph_store
 from agent.memory.memory_nodes import (
     short_term_window_node,
     advanced_memory_retrieve_node,

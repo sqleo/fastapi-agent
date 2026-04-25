@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.message import convert_to_messages
 
 from .advanced_memory import AdvancedMemoryManager
-from .langmem import get_langgraph_store
+from infra.langgraph import get_langgraph_store
 
 logger = logging.getLogger("agent.memory_nodes")
 

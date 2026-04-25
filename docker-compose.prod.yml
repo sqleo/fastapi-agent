@@ -7,7 +7,7 @@ services:
   fastapi:
     build:
       context: .
-      dockerfile: Dockerfile.fastapi
+      dockerfile: Dockerfile
     image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: fastapi-app
     ports:
@@ -15,7 +15,6 @@ services:
     env_file:
       - .env
     environment:
-      - LANGGRAPH_API_URL=http://langgraph:8000
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - LLAMAINDEX_POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
@@ -45,7 +44,7 @@ services:
   llamarag-parse-worker:
     build:
       context: .
-      dockerfile: Dockerfile.fastapi
+      dockerfile: Dockerfile
     image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: llamarag-parse-worker
     env_file:
@@ -75,49 +74,10 @@ services:
       - app-network
 
   # =============================================
-  # LangGraph 服务（生产）
-  # =============================================
-  langgraph:
-    build:
-      context: .
-      dockerfile: Dockerfile.langgraph
-    image: ${LANGGRAPH_IMAGE:-ccr.ccs.tencentyun.com/sqliu/langgraph-agent:latest}
-    container_name: langgraph-server
-    ports:
-      - "8123:8000"
-    env_file:
-      - .env
-    environment:
-      - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
-      - REDIS_URI=redis://redis:6379/0
-      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
-      - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
-      - MILVUS_DIM=${MILVUS_DIM:-1024}
-      - LLAMARAG_PROJECT_ROOT=/app
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ok')"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    volumes:
-      - ${BGE_MODEL_HOST_PATH:-./model}:/app/model:ro
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      milvus:
-        condition: service_healthy
-    networks:
-      - app-network
-
-  # =============================================
   # PostgreSQL（生产）
   # =============================================
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:16-pgdg
     container_name: langgraph-postgres
     environment:
       POSTGRES_USER: postgres

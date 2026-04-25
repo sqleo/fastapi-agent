@@ -7,14 +7,13 @@ services:
   fastapi:
     build:
       context: .
-      dockerfile: Dockerfile.fastapi
+      dockerfile: Dockerfile
     container_name: fastapi-app-dev
     ports:
       - "8888:8888"
     env_file:
       - .env
     environment:
-      - LANGGRAPH_API_URL=http://langgraph:8000
       - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - LLAMAINDEX_POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
@@ -47,7 +46,7 @@ services:
   llamarag-parse-worker:
     build:
       context: .
-      dockerfile: Dockerfile.fastapi
+      dockerfile: Dockerfile
     container_name: llamarag-parse-worker-dev
     env_file:
       - .env
@@ -79,51 +78,10 @@ services:
       - app-network
 
   # =============================================
-  # LangGraph 服务（使用自定义 Dockerfile.langgraph）
-  # =============================================
-  langgraph:
-    build:
-      context: .
-      dockerfile: Dockerfile.langgraph
-    container_name: langgraph-server-dev
-    ports:
-      - "8123:8000"
-    env_file:
-      - .env
-    environment:
-      - POSTGRES_URI=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-langgraph}
-      - REDIS_URI=redis://redis:6379/0
-      - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
-      - MILVUS_COLLECTION=${MILVUS_COLLECTION:-MILVUS_COLLECTION}
-      - MILVUS_DIM=${MILVUS_DIM:-1024}
-      # 与 embed_model 约定一致（默认自 /app 解析 model/BAAI/...；挂载后即用本地权重）
-      - LLAMARAG_PROJECT_ROOT=/app
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ok')"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    volumes:
-      - ./model:/app/model:ro
-      - ./src:/app/src
-      - ./configs:/app/configs
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      milvus:
-        condition: service_healthy
-    networks:
-      - app-network
-
-  # =============================================
   # PostgreSQL
   # =============================================
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:16-pgdg
     container_name: langgraph-postgres-dev
     environment:
       POSTGRES_USER: postgres

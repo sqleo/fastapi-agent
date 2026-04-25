@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from .langmem import get_langgraph_store
+from infra.langgraph import get_langgraph_store
 from utils.llm_init import create_llm
 from utils.sql_db import async_session
 
