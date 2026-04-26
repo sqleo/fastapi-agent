@@ -12,12 +12,12 @@ def emit_trace_event(event_name: str, payload: dict):
             - message: 可选，事件相关的文本信息，如错误描述等。
             - 其他自定义字段，根据具体事件类型而定。
     """
-    from langgraph.config import get_stream_writer
+    from langchain_core.callbacks import dispatch_custom_event
 
     try:
-        get_stream_writer()(
+        dispatch_custom_event(
+            event_name,
             {
-                "type": event_name,
                 "ts_ms": int(time.time() * 1000),
                 **payload,
             }

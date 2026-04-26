@@ -2,7 +2,6 @@
 from pydantic import BaseModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
-from langchain_core.prompts import ChatPromptTemplate
 from report.llm import create_llm
 from report.state import OutlineSection, ReportState
 from report.utils.emit_trace_event import emit_trace_event
@@ -57,9 +56,16 @@ def format_for_outline(state: ReportState) -> dict:
 
 async def outliner_node(state: ReportState) -> dict:
     """生成报告大纲"""
-    emit_trace_event("outliner_node", {"description": "生成报告大纲"})
-    llm = await create_llm("llm")
+    emit_trace_event(
+        "phase",
+        {
+            "phase": "outline",
+            "status": "running",
+            "message": "正在生成报告大纲",
+        },
+    )
     try:
+        llm = await create_llm("llm")
         chains = RunnableLambda(format_for_outline) | chat_prompt | llm.with_structured_output(OutlineResult)
         results: OutlineResult = await chains.ainvoke(state)
         # 确保每个 section 都被正确序列化为 dict，避免 Pydantic 序列化警告
@@ -67,9 +73,33 @@ async def outliner_node(state: ReportState) -> dict:
         for section in results.sections:
             section_dict = section.model_dump(mode='json')  # 使用 mode='json' 确保所有字段都是 JSON 可序列化的
             outline.append(section_dict)
-        print(f"✅ 大纲生成完成: {len(outline)} 个章节")
+        emit_trace_event(
+            "task",
+            {
+                "phase": "outline",
+                "status": "completed",
+                "message": "报告大纲已生成",
+                "chapter_count": len(outline),
+            },
+        )
+        emit_trace_event(
+            "artifact",
+            {
+                "phase": "outline",
+                "type": "outline_ready",
+                "chapter_count": len(outline),
+            },
+        )
     except Exception as e:
-        print(f"❌ 大纲生成失败: {e}")
+        emit_trace_event(
+            "task",
+            {
+                "phase": "outline",
+                "status": "failed",
+                "message": "大纲生成失败",
+                "error": str(e),
+            },
+        )
         return {"outline": []}
     return {
         "outline": outline,

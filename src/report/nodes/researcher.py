@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 
 from report.llm import create_llm
 from report.state import ReportState, ResultTaskChunk
@@ -20,67 +21,122 @@ _summarize_prompt = ChatPromptTemplate.from_messages([
 tools_map = {tool.name: tool for tool in [web_search, kb_search, data_query]}
 
 async def process_task(task: dict) -> ResultTaskChunk:
+    task_id = task.get("task_id", "")
+    topic_key = task.get("topic_key", "")
+    query = task.get("query", "")
+    source = task.get("source", "web_search")
+    emit_trace_event(
+        "task",
+        {
+            "phase": "research",
+            "status": "running",
+            "task_id": task_id,
+            "topic_key": topic_key,
+            "source": source,
+            "message": f"抓取: {query}",
+        },
+    )
     llm = await create_llm("llm")
     summarize_chain = _summarize_prompt | llm
-    tool_fn = tools_map.get(task.get("source"), tools_map["web_search"])
-    raw_result = await tool_fn.ainvoke({"query": task.get("query", "")})
+    tool_fn = tools_map.get(source, tools_map["web_search"])
+    raw_result = await tool_fn.ainvoke({"query": query})
     summary_resp = await summarize_chain.ainvoke({
-            "topic_key": task.get("topic_key", "-"),
+            "topic_key": topic_key or "-",
             "raw_content": raw_result,
         })
     summarized_content = summary_resp.content.strip()
 
     chunk = ResultTaskChunk(
-        task_id=task.get("task_id"),
-        topic_key=task.get("topic_key"),
+        task_id=task_id,
+        topic_key=topic_key,
         content=summarized_content,
-        source=f"{task.get('source', '-')}: {task.get('query', '-')}")
+        source=f"{source}: {query}")
+    emit_trace_event(
+        "task",
+        {
+            "phase": "research",
+            "status": "completed",
+            "task_id": task_id,
+            "topic_key": topic_key,
+            "source": source,
+            "message": f"抓取完成: {query}",
+        },
+    )
     return chunk
     
 
 async def researcher_node(state: ReportState) -> dict:
     """调研节点 - 根据 planner 的任务列表调用工具进行调研"""
-    emit_trace_event("researcher_node", {"description": "并行执行调研"})
+    emit_trace_event(
+        "phase",
+        {
+            "phase": "research",
+            "status": "running",
+            "message": "正在并行执行调研任务",
+        },
+    )
     research_chunks: list[dict] = []
     evidence_map: dict[str, list[str]] = {}
     plans = state.research_plan or []
+    total = len(plans)
+    if total == 0:
+        emit_trace_event(
+            "metric",
+            {
+                "phase": "research",
+                "done": 0,
+                "total": 0,
+                "coverage": 0,
+            },
+        )
+        return {
+            "research_chunks": research_chunks,
+            "evidence_map": evidence_map,
+        }
     # 并行执行调研任务
     tasks = [process_task(task) for task in plans]
-    results: list[ResultTaskChunk] = await asyncio.gather(*tasks)
-    for chunk in results:
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    done = 0
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            failed_task = plans[i]
+            emit_trace_event(
+                "task",
+                {
+                    "phase": "research",
+                    "status": "failed",
+                    "task_id": failed_task.get("task_id", ""),
+                    "topic_key": failed_task.get("topic_key", ""),
+                    "source": failed_task.get("source", "web_search"),
+                    "message": f"抓取失败: {failed_task.get('query', '')}",
+                    "error": str(result),
+                },
+            )
+            continue
+        chunk = cast(ResultTaskChunk, result)
         research_chunks.append(chunk.model_dump())
         if chunk.topic_key:
             if chunk.topic_key:
-                evidence_map.setdefault(chunk.topic_key, []).append(chunk.source)
-        print(f"✅ 任务 {chunk.task_id} 完成，结果片段: {chunk}")
+                evidence_map.setdefault(chunk.topic_key, []).append(chunk.source or "")
+        done += 1
+        emit_trace_event(
+            "metric",
+            {
+                "phase": "research",
+                "done": done,
+                "total": total,
+                "coverage": round((done / total) * 100, 2),
+            },
+        )
+    emit_trace_event(
+        "phase",
+        {
+            "phase": "research",
+            "status": "completed",
+            "message": "调研执行完成",
+        },
+    )
     return {
         "research_chunks": research_chunks,
         "evidence_map": evidence_map,
     }
-    # for task in plans:
-    #     tool_fn = tools_map.get(task.get("source"), tools_map["web_search"])
-    #     # 调用工具
-    #     raw_result = await tool_fn.ainvoke({"query": task.get("query", "")})
-    #     # 立即摘要
-    #     summary_resp = await summarize_chain.ainvoke({
-    #         "topic_key": task.get("topic_key", "-"),
-    #         "raw_content": raw_result,
-    #     })
-    #     summarized_content = summary_resp.content.strip()
-
-    #     chunk = ResultTaskChunk(
-    #         task_id=task.get("task_id"),
-    #         topic_key=task.get("topic_key"),
-    #         content=summarized_content,
-    #         source=f"{task.get('source', '-')}: {task.get('query', '-')}")
-        
-    #     research_chunks.append(chunk.model_dump())
-    #     if task.get("topic_key"):
-    #         if task.get("topic_key") not in evidence_map:
-    #             evidence_map[task.get("topic_key")] = []
-    #         evidence_map[task.get("topic_key")].append(chunk.source)
-    #     print(f"✅ 任务 {task.get('task_id')} 完成，结果片段: {chunk}")
-    # return {
-    #     "research_chunks": research_chunks,
-    #     "evidence_map": evidence_map,
-    # }

@@ -35,15 +35,34 @@ def format_for_plan(state: ReportState) -> dict:
 
 async def planner_node(state: ReportState) -> dict:
     """任务规划节点"""
-    emit_trace_event("planner_node", {"description": "执行任务规划"})
-
-    llm = await create_llm("llm")
-    chain = (
-        RunnableLambda(format_for_plan)
-        | chat_prompt
-        | llm.bind(max_tokens=4096).with_structured_output(ResultPlannerTask)
+    emit_trace_event(
+        "phase",
+        {
+            "phase": "planning",
+            "status": "running",
+            "message": "正在生成调研规划",
+        },
     )
-    result: ResultPlannerTask = await chain.ainvoke(state)
+
+    try:
+        llm = await create_llm("llm")
+        chain = (
+            RunnableLambda(format_for_plan)
+            | chat_prompt
+            | llm.bind(max_tokens=4096).with_structured_output(ResultPlannerTask)
+        )
+        result: ResultPlannerTask = await chain.ainvoke(state)
+    except Exception as e:
+        emit_trace_event(
+            "task",
+            {
+                "phase": "planning",
+                "status": "failed",
+                "message": "调研规划生成失败",
+                "error": str(e),
+            },
+        )
+        return {"research_plan": []}
 
     research_plan = [t.model_dump() for t in result.tasks]
     # 按 source 统计
@@ -51,8 +70,21 @@ async def planner_node(state: ReportState) -> dict:
     for t in result.tasks:
         source_counts[t.source] = source_counts.get(t.source, 0) + 1
 
-    print(f"✅ 调研规划完成: {len(research_plan)} 条任务")
-    for src, cnt in source_counts.items():
-        print(f"   📌 {src}: {cnt} 条")
+    emit_trace_event(
+        "task",
+        {
+            "phase": "planning",
+            "status": "completed",
+            "message": "调研规划完成",
+            "task_count": len(research_plan),
+        },
+    )
+    emit_trace_event(
+        "metric",
+        {
+            "phase": "planning",
+            "source_counts": source_counts,
+        },
+    )
 
     return {"research_plan": research_plan}

@@ -1,5 +1,7 @@
 from langchain.tools import tool
 
+from report.utils.emit_trace_event import emit_trace_event
+
 
 @tool("data_query", description="使用数据查询工具进行查询，返回查询结果摘要。")
 async def data_query(query: str) -> str:
@@ -13,5 +15,7 @@ async def data_query(query: str) -> str:
         f"查询结果2：关于 '{query}' 的最新数据动态。",
         f"查询结果3：分析 '{query}' 的数据趋势。",
     ]
+    for result in query_results:
+        emit_trace_event("data_query", {"description": "执行数据查询", "result": result})
     # 将查询结果合并为一个字符串返回
     return "\n".join(query_results)

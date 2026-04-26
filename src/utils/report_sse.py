@@ -3,12 +3,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
+from langgraph.graph.state import logging
+
 from utils.json import safe_serialize, sse_json
 
 EventPayload = dict[str, Any]
 EventHandler = Callable[[EventPayload], EventPayload | None]
 EventHandlers = Mapping[str, EventHandler]
 
+logger = logging.getLogger("utils.report_sse")
 
 def normalize_report_event(event: Any) -> EventPayload | None:
     """将 LangGraph event 规范化为统一 payload。"""
@@ -17,7 +20,6 @@ def normalize_report_event(event: Any) -> EventPayload | None:
     metadata = event.get("metadata", {}) or {}
     node_name = metadata.get("langgraph_node")
     data = event.get("data", {}) or {}
-
     if kind == "on_chain_start" and node_name and event_name == node_name:
         return {"type": "node", "state": "running", "node": node_name}
 
@@ -37,6 +39,17 @@ def normalize_report_event(event: Any) -> EventPayload | None:
                 "type": "message",
                 "node": node_name,
                 "data": {"content": content},
+            }
+        return None
+
+    if kind == "on_custom_event":
+        payload = event.get("data")
+        if isinstance(payload, dict):
+            return {
+                "type": "custom",
+                "event_name": event_name,
+                "node": node_name,
+                "data": payload,
             }
         return None
 

@@ -3,13 +3,13 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from langgraph.graph.state import RunnableConfig
 from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
 from pydantic_core import to_json
@@ -30,6 +30,19 @@ report_graph = build_report_graph()
 
 def _identity_event_handler(payload: EventPayload) -> EventPayload:
     return payload
+
+
+def _custom_event_unwrap_handler(payload: EventPayload) -> EventPayload | None:
+    """将 custom 事件解包为业务事件类型（phase/task/metric/artifact）。"""
+    event_name = payload.get("event_name")
+    data = payload.get("data")
+    if not isinstance(event_name, str) or not isinstance(data, dict):
+        return None
+    return {
+        "type": event_name,
+        "node": payload.get("node"),
+        **data,
+    }
 
 
 def _build_message_filter_handler(allowed_nodes: set[str] | None) -> EventHandler:
@@ -108,7 +121,7 @@ async def generate_report(
     Server-Sent Events 流式输出每个节点执行状态
     """
     tid = request.thread_id or str(uuid4())
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "thread_id": tid,
             "user_id": user.id,
@@ -126,6 +139,7 @@ async def generate_report(
             )
             generate_handlers: dict[str, EventHandler] = {
                 "message": _build_message_filter_handler({"writer"}),
+                "custom": _custom_event_unwrap_handler,
             }
             async for sse_event in iter_report_sse_events(
                 events,
@@ -165,7 +179,7 @@ async def resume_report(
 ):
     """恢复被中断的报告任务（流式输出）"""
     tid = request.thread_id
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "thread_id": tid,
             "user_id": user.id,
@@ -205,6 +219,7 @@ async def resume_report(
             resume_handlers: dict[str, EventHandler] = {
                 "node": _resume_node_alias_handler,
                 "message": _build_message_filter_handler({"writer"}),
+                "custom": _custom_event_unwrap_handler,
             }
             async for sse_event in iter_report_sse_events(
                 events,
@@ -245,7 +260,7 @@ async def get_report_status(
 ):
     user_id: int = user.id
     """查询报告生成状态"""
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id,
@@ -259,6 +274,8 @@ async def get_report_status(
             data=ReportStatusResponse(
                 thread_id=thread_id,
                 status="not_found",
+                current_node=None,
+                state=None,
             )
         )
 
@@ -274,7 +291,7 @@ async def get_report_status(
         data=ReportStatusResponse(
             thread_id=thread_id,
             status=status,
-            current_node=state.next,
+            current_node=state.next,  # pyright: ignore[reportArgumentType]
             state=serialized_state,
         )
     )
@@ -290,7 +307,7 @@ async def rollback_report(
     """回滚报告到指定节点"""
     from infra.langgraph.control import rollback_to
 
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id,
@@ -346,7 +363,7 @@ async def stream_report(
 
     Server-Sent Events 流式输出，每个事件为节点执行状态
     """
-    config = {
+    config: RunnableConfig = {
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id,
@@ -366,9 +383,6 @@ async def stream_report(
                     yield f"data: {node_output}\n\n"
 
             yield "event: completed\ndata: done\n\n"
-
-        except Interrupt:
-            yield "event: interrupted\ndata: human_review\n\n"
 
         except Exception as e:
             yield f"event: error\ndata: {str(e)}\n\n"

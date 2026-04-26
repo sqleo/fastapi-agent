@@ -1,5 +1,7 @@
 from langchain.tools import tool
 
+from report.utils.emit_trace_event import emit_trace_event
+
 
 @tool("kb_search", description="使用知识库搜索工具进行查询，返回搜索结果摘要。")
 async def kb_search(query: str) -> str:
@@ -13,5 +15,7 @@ async def kb_search(query: str) -> str:
         f"搜索结果2：关于 '{query}' 的最新动态。",
         f"搜索结果3：分析 '{query}' 的专家观点。",
     ]
+    for result in search_results:
+        emit_trace_event("kb_search", {"description": "执行知识库搜索", "result": result})
     # 将搜索结果合并为一个字符串返回
     return "\n".join(search_results)
