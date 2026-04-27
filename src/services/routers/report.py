@@ -138,7 +138,7 @@ async def generate_report(
                 version="v2",
             )
             generate_handlers: dict[str, EventHandler] = {
-                "message": _build_message_filter_handler({"writer"}),
+                "message": lambda _: None,
                 "custom": _custom_event_unwrap_handler,
             }
             async for sse_event in iter_report_sse_events(
@@ -209,7 +209,6 @@ async def resume_report(
                 "metadata": request.metadata or {},
                 "thread_id": tid,
             }
-
             # 使用 astream_events 流式恢复执行
             events = report_graph.astream_events(
                 Command(resume=resume_data),
@@ -218,7 +217,7 @@ async def resume_report(
             )
             resume_handlers: dict[str, EventHandler] = {
                 "node": _resume_node_alias_handler,
-                "message": _build_message_filter_handler({"writer"}),
+                "message": lambda _: None,
                 "custom": _custom_event_unwrap_handler,
             }
             async for sse_event in iter_report_sse_events(

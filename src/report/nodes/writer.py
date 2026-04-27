@@ -1,8 +1,7 @@
-
 import asyncio
 from typing import cast
 from report.llm import create_llm
-from report.state import ReportState
+from report.state import OutlineSection, ReportState, SectionReview
 from report.utils.emit_trace_event import emit_trace_event
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -18,7 +17,6 @@ multiple_drafts_prompt = ChatPromptTemplate.from_messages([
         "【写作准则】：\n"
         "1. 严格基于提供的【调研摘要】撰写，引用数据需标注来源，不要凭空捏造。\n"
         "2. 语言专业、逻辑清晰、数据翔实。\n"
-        #"3. 写作风格要求：{style_instruction}"
     )),
     ("human", (
         "【本章节撰写任务】\n"
@@ -30,7 +28,7 @@ multiple_drafts_prompt = ChatPromptTemplate.from_messages([
         "{content}\n\n"
         "【调研摘要（核心素材）来源】\n"
         "{source}\n\n"
-        "请开始撰写该章节正文："
+        "请开始撰写该章节正文，并在合适位置插入配图占位符。"
     )),
 ])
 
@@ -45,7 +43,7 @@ async def writer_node(state: ReportState) -> dict:
             "message": "开始并行撰写报告章节",
         },
     )
-    
+
     if not state.outline:
         emit_trace_event(
             "task",
@@ -55,87 +53,99 @@ async def writer_node(state: ReportState) -> dict:
                 "message": "未发现大纲，无法撰写报告",
             },
         )
-        return {"draft": "未发现大纲", "final_report": "未发现大纲"}
+        raise ValueError("未发现大纲，无法撰写报告")
 
     llm = await create_llm("llm")
-
-    # 提取调研素材
     chunks = state.research_chunks or []
-    content_text = "\n".join([f"[{c.get('topic_key', '-')}] {c.get('content', '')}" for c in chunks])
-    source_text = "\n".join(list(set([c.get('source', '') for c in chunks if c.get('source')])))
-
     intent = state.intent
-    common_params = {
-        "user_query": state.user_query,
-        "topic": intent.topic if intent else "-",
-        "industry": intent.industry if intent else "-",
-        "depth": intent.depth if intent else "-",
-        "scope": intent.scope if intent else "-",
-        "output_format": intent.output_format if intent else "Markdown",
-        "content": content_text or "暂无调研摘要",
-        "source": source_text or "暂无来源数据",
-    }
 
-    async def generate_section(section: dict):
-        section_id = section.get("section_id", "")
-        title = section.get("title", "")
+    async def generate_section(section: OutlineSection) -> SectionReview:
+        # 每章只取关联的调研数据
+        section_chunks = [c for c in chunks if c.topic_key in (section.evidence_keys or [])]
+        # 没有关联数据时降级使用全部
+        if not section_chunks:
+            section_chunks = chunks
+        content_text = "\n".join([f"[{c.topic_key}] {c.content}" for c in section_chunks])
+        source_text = "\n".join(list(set([c.source for c in section_chunks if c.source])))
+
         emit_trace_event(
             "task",
             {
                 "phase": "writing",
                 "status": "running",
-                "task_id": section_id,
-                "title": title,
-                "message": f"{title} 章节撰写中",
+                "task_id": section.section_id,
+                "title": section.title,
+                "message": f"{section.title} 章节撰写中",
             },
         )
+
         chain = multiple_drafts_prompt | llm
-        response = await chain.ainvoke(
-            {
-                **common_params,
-                "title": title,
-                "objective": section.get("objective", ""),
-                "key_points": ", ".join(section.get("key_points", []))
-                if isinstance(section.get("key_points"), list)
-                else section.get("key_points", ""),
-                "target_words": section.get("target_words", 500),
-            }
-        )
+        response = await chain.ainvoke({
+            "user_query": state.user_query,
+            "topic": intent.topic if intent else "-",
+            "industry": intent.industry if intent else "-",
+            "depth": intent.depth if intent else "-",
+            "scope": intent.scope if intent else "-",
+            "output_format": intent.output_format if intent else "Markdown",
+            "content": content_text or "暂无调研摘要",
+            "source": source_text or "暂无来源数据",
+            "title": section.title,
+            "objective": section.objective,
+            "key_points": ", ".join(section.key_points) if isinstance(section.key_points, list) else section.key_points,
+            "target_words": section.target_words,
+        })
+
         emit_trace_event(
             "task",
             {
                 "phase": "writing",
                 "status": "completed",
-                "task_id": section_id,
-                "title": title,
-                "message": f"{title} 章节完成",
+                "task_id": section.section_id,
+                "title": section.title,
+                "message": f"{section.title} 章节完成",
             },
         )
-        # 返回带标题的内容，方便后续组合
-        return f"## {section.get('title')}\n\n{response.content}"
 
-    # 并行调用 LLM 撰写各章节
-    total = len(state.outline)
-    tasks = [generate_section(section) for section in state.outline]
-    section_results = await asyncio.gather(*tasks, return_exceptions=True)
-    section_drafts: list[str] = []
+        return SectionReview(
+            section_id=section.section_id,
+            content=f"## {section.title}\n\n{response.content}",
+        )
+
+    last_review = next(
+        (a for a in reversed(state.artifacts or []) if a.get("type") == "review"),
+        None,
+    )
+    revise_ids = set(last_review.get("sections_to_revise", [])) if last_review else set()
+
+    # 首轮写全部；复写轮只写未通过章节
+    sections_to_write = (
+        [s for s in state.outline if s.section_id in revise_ids]
+        if revise_ids
+        else list(state.outline)
+    )
+
+    total = len(sections_to_write)
+    tasks = [generate_section(section) for section in sections_to_write]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    rewritten_reviews: list[SectionReview] = []
     done = 0
-    for i, item in enumerate(section_results):
+    for i, item in enumerate(results):
         if isinstance(item, Exception):
-            section = state.outline[i]
+            section = sections_to_write[i]
             emit_trace_event(
                 "task",
                 {
                     "phase": "writing",
                     "status": "failed",
-                    "task_id": section.get("section_id", ""),
-                    "title": section.get("title", ""),
-                    "message": f"{section.get('title', '')} 章节失败",
+                    "task_id": section.section_id,
+                    "title": section.title,
+                    "message": f"{section.title} 章节失败",
                     "error": str(item),
                 },
             )
             continue
-        section_drafts.append(cast(str, item))
+        rewritten_reviews.append(cast(SectionReview, item))
         done += 1
         emit_trace_event(
             "metric",
@@ -147,36 +157,22 @@ async def writer_node(state: ReportState) -> dict:
             },
         )
 
-    # 组装最终报告
-    report_title = f"# {intent.topic}\n\n" if intent else ""
-    draft = report_title + "\n\n".join(section_drafts)
+    # 按 section_id 合并：只替换本轮重写章节，保留其余章节
+    merged_reviews_map = {s.section_id: s for s in (state.section_reviews or [])}
+    for s in rewritten_reviews:
+        merged_reviews_map[s.section_id] = s
+    section_reviews = [merged_reviews_map[s.section_id] for s in state.outline if s.section_id in merged_reviews_map]
+
+    print(f"✅ 报告草稿撰写完成 共{done}章（本轮重写）")
     emit_trace_event(
         "artifact",
         {
             "phase": "writing",
             "type": "report_ready",
             "chapter_count": done,
-            "word_count": len(draft),
-            "message": f"报告已生成，共 {done} 章",
+            "word_count": sum(len(s.content) for s in section_reviews),
+            "message": f"报告草稿撰写完成，共 {done} 章",
         },
     )
-    emit_trace_event(
-        "metric",
-        {
-            "phase": "writing",
-            "quality_score": 9.1,
-            "message": "质量评分已生成",
-        },
-    )
-    emit_trace_event(
-        "phase",
-        {
-            "phase": "writing",
-            "status": "completed",
-            "message": "报告撰写完成",
-        },
-    )
-    return {
-        "draft": draft,
-        "final_report": draft,
-    }
+
+    return {"section_reviews": section_reviews}

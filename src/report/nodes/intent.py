@@ -1,8 +1,11 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate
 from report.llm import create_llm
 from report.state import OutIntent, ReportState
 from report.utils.emit_trace_event import emit_trace_event
 
+logger = logging.getLogger(__name__)
 
 chat_prompt = ChatPromptTemplate.from_messages(
     [
@@ -19,6 +22,7 @@ chat_prompt = ChatPromptTemplate.from_messages(
                 "7. output_format: 输出格式 默认值为 Markdown\n"
                 "8. industry: 行业标签 默认值为 未指定\n"
                 "如有缺失项，根据上下文合理推断或标记为'未指定'。"
+                "请严格以 JSON 格式输出，不要包含任何额外文字或 markdown 代码块。"
             ),
         ),
         ("human", "分析以下需求：{user_query}"),
@@ -49,6 +53,7 @@ async def intent_node(state: ReportState) -> dict:
                 "topic": out_intent.topic,
             },
         )
+        print(f"✅ 提取结果{ out_intent}")
     except Exception as e:
         emit_trace_event(
             "task",
@@ -59,11 +64,7 @@ async def intent_node(state: ReportState) -> dict:
                 "error": str(e),
             },
         )
-        return {
-            "intent": None,
-            "stage": "intent",
-        }
+        raise
     return {
-        "intent": out_intent.model_dump(),
-        "stage": "intent",
+        "intent": out_intent,
     }

@@ -5,13 +5,16 @@ from langgraph.graph.state import CompiledStateGraph
 from report.nodes.human_review import human_review_node, human_review_intent_node
 from report.nodes.intent import intent_node
 from report.nodes.outliner import outliner_node
+from report.nodes.output_node import output_node
 from report.nodes.planner import planner_node
 from report.nodes.researcher import researcher_node
+from report.nodes.reviewer import review_router, reviewer_node
 from report.nodes.writer import writer_node
 from report.state import ReportState
 from report.memory.checkpoint import get_report_checkpoint_saver
 from report.config import ROUTING_TABLE
-
+import logging
+logger = logging.getLogger("report.graph")
 
 async def route_after_review(state: ReportState) -> str:
     """根据人工审核结果路由 (大纲阶段)"""
@@ -35,6 +38,8 @@ def build_report_graph() -> CompiledStateGraph[ReportState]:
     graph.add_node("human_review", human_review_node)
     graph.add_node("outliner", outliner_node)
     graph.add_node("writer",  writer_node)
+    graph.add_node("reviewer", reviewer_node)
+    graph.add_node("output", output_node)
 
     # 注册边
     graph.add_edge(START, "intent")
@@ -56,8 +61,16 @@ def build_report_graph() -> CompiledStateGraph[ReportState]:
         route_after_review
     )
     
-    graph.add_edge("writer", END)
-    
+    graph.add_edge("writer", "reviewer")
+    graph.add_conditional_edges(
+        "reviewer",
+        review_router,
+        {
+            "writer": "writer",
+            "end": "output",   # ← 先组装报告
+        },
+    )
+    graph.add_edge("output", END)
     return graph.compile(
         name="report_graph",
         checkpointer=get_report_checkpoint_saver(),

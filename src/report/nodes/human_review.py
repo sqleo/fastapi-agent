@@ -7,6 +7,15 @@ from langchain_core.runnables import RunnableConfig
 
 _ALLOWED = ["confirm", "revise", "replan"]
 
+
+def _has_meaningful_value(value: Any) -> bool:
+    """仅在用户确实提供了有效修改值时才覆盖状态。"""
+    if value is None:
+        return False
+    if isinstance(value, (list, dict)) and len(value) == 0:
+        return False
+    return True
+
 async def human_review_node(
     state: ReportState, config: RunnableConfig
 ) -> dict[str, Any] | Command:
@@ -28,8 +37,13 @@ async def human_review_node(
             if decision.updates.get("new_query") else None,
         )
     result: dict = {"human_decision": decision.payload}
-    if decision.action == "revise" and "outline" in decision.updates:
-        result["outline"] = decision.updates["outline"]
+    
+    # 提取更新内容 (兼容直接传值或嵌套在 updates 键中的结构)
+    updates = decision.updates.get("updates", decision.updates)
+    
+    if decision.action == "revise" and _has_meaningful_value(updates.get("outline")):
+        result["outline"] = updates["outline"]
+    
     return result
 
 
@@ -46,7 +60,11 @@ async def human_review_intent_node(state: ReportState, config: RunnableConfig) -
     raw = interrupt(payload.model_dump())
     decision = parse_decision(raw, allowed_actions=_ALLOWED_INTENT)
     result: dict = {"human_decision": decision.payload}
-    print("最终结果: ", result)
-    if decision.action == "revise" and "intent" in decision.updates:
-        result["intent"] = decision.updates["intent"]
+    
+    # 提取更新内容
+    updates = decision.updates.get("updates", decision.updates)
+    
+    if decision.action == "revise" and _has_meaningful_value(updates.get("intent")):
+        result["intent"] = updates["intent"]
+        
     return result

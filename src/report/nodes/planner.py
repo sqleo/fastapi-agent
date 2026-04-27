@@ -12,7 +12,7 @@ class ResultPlannerTask(BaseModel):
 chat_prompt = ChatPromptTemplate.from_messages([
     ("system", (
         "你是一个调研规划专家。根据用户意图，生成调研计划。\n"
-        "每条任务包含：task_id, topic_key(调研主题标识，例如: market_size / policy / competition / technology), query, source(kb_search/web_search/data_query), priority(1-3)。\n"
+        "每条任务包含：task_id, topic_key(调研主题标识，例如: market_size / policy / competition / technology), query, tool(kb_search/web_search/data_query), priority(1-3)。\n"
         "规则：\n"
         "- 每个关键维度至少 1 条调研任务\n"
         "- 优先使用 kb_search（知识库），不足时用 web_search（网络搜索）\n"
@@ -62,13 +62,13 @@ async def planner_node(state: ReportState) -> dict:
                 "error": str(e),
             },
         )
-        return {"research_plan": []}
+        raise
 
     research_plan = [t.model_dump() for t in result.tasks]
-    # 按 source 统计
-    source_counts = {}
+    # 按 tool 统计
+    tool_counts = {}
     for t in result.tasks:
-        source_counts[t.source] = source_counts.get(t.source, 0) + 1
+        tool_counts[t.tool] = tool_counts.get(t.tool, 0) + 1
 
     emit_trace_event(
         "task",
@@ -83,7 +83,7 @@ async def planner_node(state: ReportState) -> dict:
         "metric",
         {
             "phase": "planning",
-            "source_counts": source_counts,
+            "tool_counts": tool_counts,
         },
     )
 
