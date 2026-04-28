@@ -3,6 +3,7 @@ from pathlib import Path
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from report.nodes.human_review import human_review_node, human_review_intent_node
+from report.nodes.illustrator_node import illustrator_node
 from report.nodes.intent import intent_node
 from report.nodes.outliner import outliner_node
 from report.nodes.output_node import output_node
@@ -39,6 +40,7 @@ def build_report_graph() -> CompiledStateGraph[ReportState]:
     graph.add_node("outliner", outliner_node)
     graph.add_node("writer",  writer_node)
     graph.add_node("reviewer", reviewer_node)
+    graph.add_node("illustrator", illustrator_node)
     graph.add_node("output", output_node)
 
     # 注册边
@@ -67,9 +69,11 @@ def build_report_graph() -> CompiledStateGraph[ReportState]:
         review_router,
         {
             "writer": "writer",
-            "end": "output",   # ← 先组装报告
+            "end": "illustrator",
         },
     )
+    graph.add_edge("illustrator", "output")
+    
     graph.add_edge("output", END)
     return graph.compile(
         name="report_graph",

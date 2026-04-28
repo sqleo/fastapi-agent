@@ -20,30 +20,31 @@ def normalize_report_event(event: Any) -> EventPayload | None:
     metadata = event.get("metadata", {}) or {}
     node_name = metadata.get("langgraph_node")
     data = event.get("data", {}) or {}
-    if kind == "on_chain_start" and node_name and event_name == node_name:
-        return {"type": "node", "state": "running", "node": node_name}
+    # if kind == "on_chain_start" and node_name and event_name == node_name:
+    #     return {"type": "node", "state": "running", "node": node_name}
 
-    if kind == "on_chain_end" and node_name and event_name == node_name:
-        return {
-            "type": "node",
-            "state": "completed",
-            "node": node_name,
-            "output": safe_serialize(data.get("output")) if node_name == "writer" else None,
-        }
+    # if kind == "on_chain_end" and node_name and event_name == node_name:
+    #     return {
+    #         "type": "node",
+    #         "state": "completed",
+    #         "node": node_name,
+    #         "output": safe_serialize(data.get("output")) if node_name == "writer" else None,
+    #     }
 
-    if kind == "on_chat_model_stream":
-        chunk = data.get("chunk")
-        content = getattr(chunk, "content", None)
-        if content:
-            return {
-                "type": "message",
-                "node": node_name,
-                "data": {"content": content},
-            }
-        return None
+    # if kind == "on_chat_model_stream":
+    #     chunk = data.get("chunk")
+    #     content = getattr(chunk, "content", None)
+    #     if content:
+    #         return {
+    #             "type": "message",
+    #             "node": node_name,
+    #             "data": {"content": content},
+    #         }
+    #     return None
 
     if kind == "on_custom_event":
         payload = event.get("data")
+        print(f"🔔 捕获自定义事件 {event_name}，节点 {node_name}，数据 {payload}")
         if isinstance(payload, dict):
             return {
                 "type": "custom",
