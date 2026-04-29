@@ -14,6 +14,7 @@ from report.nodes.writer import writer_node
 from report.state import ReportState
 from report.memory.checkpoint import get_report_checkpoint_saver
 from report.config import ROUTING_TABLE
+from report.skills.registry import SkillRegistry
 import logging
 logger = logging.getLogger("report.graph")
 
@@ -31,6 +32,7 @@ async def route_after_review(state: ReportState) -> str:
 
 
 def build_report_graph() -> CompiledStateGraph[ReportState]:
+    SkillRegistry.auto_discover()
     graph = StateGraph(ReportState)
     graph.add_node("intent", intent_node)
     graph.add_node("human_review_intent", human_review_intent_node)

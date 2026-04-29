@@ -1,11 +1,10 @@
 import asyncio
 from typing import cast
 
+from langgraph.config import get_config
 from report.llm import create_llm
 from report.state import PlannerTask, ReportState, ResultTaskChunk
-from report.tool.data_query import data_query
-from report.tool.kb_search import kb_search
-from report.tool.web_search import web_search
+from report.skills.registry import SkillRegistry
 from report.utils.emit_trace_event import emit_trace_event
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -17,10 +16,8 @@ _summarize_prompt = ChatPromptTemplate.from_messages([
     ("human", "调研主题：{topic_key}\n\n原始内容：\n{raw_content}"),
 ])
 
-
-tools_map = {tool.name: tool for tool in [web_search, kb_search, data_query]}
-
 async def process_task(task: PlannerTask) -> ResultTaskChunk:
+    tools_map = {tool.name: tool for tool in SkillRegistry.get_all_tools()}
     task_id = task.task_id
     topic_key = task.topic_key
     query = task.query
@@ -67,6 +64,10 @@ async def process_task(task: PlannerTask) -> ResultTaskChunk:
 
 async def researcher_node(state: ReportState) -> dict:
     """调研节点 - 根据 planner 的任务列表调用工具进行调研"""
+    config = get_config() or {}
+    enabled_tools = (config.get("configurable") or {}).get("enabled_tools")
+    allowed_tools: set[str] | None = set(enabled_tools) if isinstance(enabled_tools, list) else None
+
     emit_trace_event(
         "phase",
         {
@@ -78,6 +79,8 @@ async def researcher_node(state: ReportState) -> dict:
     research_chunks: list[dict] = []
     evidence_map: dict[str, list[str]] = {}
     plans = state.research_plan or []
+    if allowed_tools is not None:
+        plans = [task for task in plans if task.tool in allowed_tools]
     total = len(plans)
     if total == 0:
         emit_trace_event(

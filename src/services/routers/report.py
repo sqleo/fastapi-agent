@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.graph.state import RunnableConfig
 from langgraph.types import Command, Interrupt
@@ -26,8 +27,6 @@ logger = logging.getLogger("services.routers.report")
 router = APIRouter(tags=["Report"], prefix="/report")
 
 report_graph = build_report_graph()
-
-
 def _identity_event_handler(payload: EventPayload) -> EventPayload:
     return payload
 
@@ -86,7 +85,6 @@ class GenerateReportRequest(BaseModel):
     user_query: str = Field(..., description="用户查询主题，例如：'2026年Q1新能源汽车市场分析'")
     thread_id: Optional[str] = Field(None, description="可选，指定会话 ID 用于恢复")
 
-
 class GenerateReportResponse(BaseModel):
     """生成报告响应"""
     thread_id: str = Field(..., description="会话 ID，用于后续查询状态、恢复执行")
@@ -121,12 +119,13 @@ async def generate_report(
     Server-Sent Events 流式输出每个节点执行状态
     """
     tid = request.thread_id or str(uuid4())
+    configurable: dict[str, Any] = {
+        "thread_id": tid,
+        "user_id": user.id,
+        "graph": report_graph,
+    }
     config: RunnableConfig = {
-        "configurable": {
-            "thread_id": tid,
-            "user_id": user.id,
-            "graph": report_graph,
-        }
+        "configurable": configurable
     }
 
     async def event_generator():

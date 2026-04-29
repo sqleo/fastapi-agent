@@ -1,0 +1,6 @@
+name: "test_yaml_skill"
+display_name: "测试 YAML 技能"
+description: "这是一个通过 YAML 定义的测试技能。"
+enabled: true
+tools:
+  - "report.tool.web_search.web_search"
