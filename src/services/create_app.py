@@ -1,24 +1,26 @@
-from contextlib import asynccontextmanager
+"""FastAPI 应用构建与启动生命周期管理。"""
+
 import logging
 import time
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi import Request
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel
 from starlette.middleware.cors import CORSMiddleware
 
-
+import models  # noqa: F401
+from monitor.pg import close_monitor_pool, init_monitor_pool
 from services.middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.logging_setup import configure_logging
 from utils.response import register_exception_handlers
 from utils.sql_db import check_db_connection, dispose_async_engine, get_async_engine
-from monitor.pg import init_monitor_pool, close_monitor_pool
 
 logger = logging.getLogger("services.request")
 
 
 def create_app():
+    """创建并配置 FastAPI 应用实例。"""
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         configure_logging()

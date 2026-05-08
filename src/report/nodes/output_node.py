@@ -9,17 +9,17 @@ async def output_node(state: ReportState) -> dict:
 
     title = f"# {intent.topic}\n\n" if intent else ""
     full_report = title + "\n\n".join(s.content for s in section_reviews)
-    print(f"✅ 生成最终报告，长度 {full_report}")
     word_count = len(full_report)
     chapter_count = len(section_reviews)
+    print(f"✅ 生成最终报告，长度 {word_count}")
 
-    emit_trace_event("phase", {
+    emit_trace_event("final_report_ready", {
         "phase": "output",
-        "status": "completed",
-        "message": f"报告生成完成，共 {chapter_count} 章，{word_count} 字",
         "chapter_count": chapter_count,
         "word_count": word_count,
-        "final_report": full_report
+        "quality_score": None,
+        "markdown": full_report,
+        "message": "最终报告已生成",
     })
 
     return {"final_report": full_report}

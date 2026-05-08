@@ -47,12 +47,9 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 ENV HF_HUB_OFFLINE=1
 ENV TRANSFORMERS_OFFLINE=1
 
-# 7. 复制配置、本地嵌入模型与源码
-#    model/ 需与 src/llamarag/local_model/embed_model.py 中一致：model/bge-small-zh-v1.5/
-#    构建前请在项目根准备好该目录；大文件放前面有利于缓存（改代码时不重复 COPY 模型层）
-
+# 7. 复制配置与源码
+#    model/ 通过 docker-compose.prod.yml 的 volume 挂入，不打进镜像
 COPY configs/ ./configs/
-COPY model/ ./model/
 COPY src/ ./src/
 
 # 8. 建立静态资源目录

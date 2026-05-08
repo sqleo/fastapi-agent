@@ -1,5 +1,6 @@
 
 import logging
+from collections import defaultdict
 
 from pydantic import BaseModel
 from langchain_core.prompts import ChatPromptTemplate
@@ -34,25 +35,46 @@ chat_prompt = ChatPromptTemplate.from_messages(
             "大纲章节应覆盖调研摘要中的核心主题，保持简洁， 返回示例格式，不要展开论述。\n\n"
             f"{FEW_SHOT_EXAMPLE}"
         )),
-        ("human", "需求：{user_query}\n主题：{topic}\n范围：{scope}\n行业：{industry}\n"),
-    ] ,
+        ("human", (
+            "需求：{user_query}\n"
+            "主题：{topic}\n"
+            "范围：{scope}\n"
+            "行业：{industry}\n\n"
+            "【调研摘要（按主题分组，作为大纲拟定的核心依据）】\n"
+            "{research_summary}\n"
+        )),
+    ],
     template_format="jinja2"
 )
 
 def format_for_outline(state: ReportState) -> dict:
+    chunks = state.research_chunks or []
+    grouped: dict[str, list] = defaultdict(list)
+    for c in chunks:
+        grouped[c.topic_key].append(c)
+    research_summary_parts: list[str] = []
+    for key, items in grouped.items():
+        summaries = "\n".join(
+            f"  [{i+1}] ({c.source_type}, 可信度 {c.confidence or '-'}) {c.content}"
+            for i, c in enumerate(items[:3])
+        )
+        research_summary_parts.append(f"▸ [{key}]\n{summaries}")
+    research_summary = "\n\n".join(research_summary_parts) if research_summary_parts else "暂无调研摘要，请根据主题合理推断章节结构"
+
     return {
         "user_query": state.user_query,
         "topic": state.intent.topic if state.intent else "-",
         "scope": state.intent.scope if state.intent else "-",
         "depth": state.intent.depth if state.intent else "-",
         "industry": state.intent.industry if state.intent else "-",
+        "research_summary": research_summary,
     }
 
 
 async def outliner_node(state: ReportState) -> dict:
     """生成报告大纲"""
     emit_trace_event(
-        "phase",
+        "stage",
         {
             "phase": "outline",
             "status": "running",
@@ -66,32 +88,15 @@ async def outliner_node(state: ReportState) -> dict:
         print(f"✅ 生成报告大纲{ results}")
 
         emit_trace_event(
-            "task",
+            "outline_ready",
             {
                 "phase": "outline",
-                "status": "completed",
-                "message": "报告大纲已生成",
                 "chapter_count": len(results.sections),
-            },
-        )
-        emit_trace_event(
-            "artifact",
-            {
-                "phase": "outline",
-                "type": "outline_ready",
-                "chapter_count": len(results.sections),
+                "outline": [section.model_dump() for section in results.sections],
+                "message": "报告大纲已生成，等待审核",
             },
         )
     except Exception as e:
-        emit_trace_event(
-            "task",
-            {
-                "phase": "outline",
-                "status": "failed",
-                "message": "大纲生成失败",
-                "error": str(e),
-            },
-        )
         raise
     return {
         "outline": results.sections,

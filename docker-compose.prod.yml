@@ -5,9 +5,6 @@ services:
   # FastAPI 业务服务（生产）
   # =============================================
   fastapi:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: fastapi-app
     ports:
@@ -39,12 +36,27 @@ services:
       - app-network
 
   # =============================================
+  # Web 前端（Next.js，web_agent 项目构建镜像）
+  # NEXT_PUBLIC_* 在 build 时写入 bundle，改 API 地址需重新 build+push 镜像
+  # =============================================
+  web:
+    image: ${WEB_IMAGE:-ccr.ccs.tencentyun.com/sqliu/web_agent:latest}
+    container_name: web-agent
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"
+    env_file:
+      - path: .env_web
+        required: false
+    restart: unless-stopped
+    depends_on:
+      - fastapi
+    networks:
+      - app-network
+
+  # =============================================
   # LlamaRAG 解析 Worker（生产，Taskiq，队列 llamarag:parse）
   # =============================================
   llamarag-parse-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
     container_name: llamarag-parse-worker
     env_file:

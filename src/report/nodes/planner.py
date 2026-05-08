@@ -36,7 +36,7 @@ def format_for_plan(state: ReportState) -> dict:
 async def planner_node(state: ReportState) -> dict:
     """任务规划节点"""
     emit_trace_event(
-        "phase",
+        "stage",
         {
             "phase": "planning",
             "status": "running",
@@ -53,38 +53,8 @@ async def planner_node(state: ReportState) -> dict:
         )
         result: ResultPlannerTask = await chain.ainvoke(state)
     except Exception as e:
-        emit_trace_event(
-            "task",
-            {
-                "phase": "planning",
-                "status": "failed",
-                "message": "调研规划生成失败",
-                "error": str(e),
-            },
-        )
         raise
 
     research_plan = [t.model_dump() for t in result.tasks]
-    # 按 tool 统计
-    tool_counts = {}
-    for t in result.tasks:
-        tool_counts[t.tool] = tool_counts.get(t.tool, 0) + 1
-
-    emit_trace_event(
-        "task",
-        {
-            "phase": "planning",
-            "status": "completed",
-            "message": "调研规划完成",
-            "task_count": len(research_plan),
-        },
-    )
-    emit_trace_event(
-        "metric",
-        {
-            "phase": "planning",
-            "tool_counts": tool_counts,
-        },
-    )
 
     return {"research_plan": research_plan}

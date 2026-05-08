@@ -34,11 +34,18 @@ class PlannerTask(BaseModel):
     priority: int = Field(default=1, description="优先级 1-3")
 
 class ResultTaskChunk(BaseModel):
-    """调研结果片段"""
+    """调研结果片段（结构化证据对象）"""
     task_id: str = Field(..., description="来源任务ID: t1, t2, ...")
     topic_key: str = Field(..., description="所属调研主题标识")
     content: str = Field(..., description="检索到的内容摘要")
     source: Optional[str] = Field(None, description="信息来源URL或文档名")
+    # 结构化证据字段
+    title: Optional[str] = Field(None, description="来源标题，如网页/文档标题")
+    url: Optional[str] = Field(None, description="来源URL链接")
+    source_type: str = Field(default="web", description="来源类型: kb/web/api/upload")
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="可信度 0-1")
+    published_at: Optional[str] = Field(None, description="发布/更新时间，如 2025-Q1")
+    raw_query: Optional[str] = Field(None, description="原始查询语句")
 
 class SectionReview(BaseModel):
     """初稿片段"""

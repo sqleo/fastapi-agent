@@ -45,13 +45,6 @@ async def _review_section(
     topic: str,
     llm,
 ) -> SectionReview:
-    emit_trace_event("task", {
-        "phase": "review",
-        "status": "running",
-        "task_id": section.section_id,
-        "message": f"正在审核章节 {section.section_id}",
-    })
-
     chain = _section_prompt | llm.with_structured_output(SectionScoreOutput)
     result: SectionScoreOutput = await chain.ainvoke({
         "topic": topic,
@@ -65,11 +58,13 @@ async def _review_section(
     section.issues = result.issues
     section.suggestions = result.suggestions
 
-    emit_trace_event("task", {
-        "phase": "review",
-        "status": "completed",
-        "task_id": section.section_id,
+    emit_trace_event("section_update", {
+        "phase": "writing",
+        "section_id": section.section_id,
+        "status": "reviewed",
         "score": section.score,
+        "issues": section.issues,
+        "suggestions": section.suggestions,
         "message": f"章节 {section.section_id} 审核完成，评分 {section.score}/10",
     })
     return section
@@ -82,7 +77,7 @@ async def reviewer_node(state: ReportState) -> dict:
     current_round = review_count + 1
     topic = state.intent.topic if state.intent else state.user_query
 
-    emit_trace_event("phase", {
+    emit_trace_event("stage", {
         "phase": "review",
         "status": "running",
         "message": "正在执行质量审核",
@@ -118,41 +113,29 @@ async def reviewer_node(state: ReportState) -> dict:
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             logger.error("章节 %s 审核失败: %s", sections_to_review[i].section_id, result)
-            emit_trace_event("task", {
-                "phase": "review",
-                "status": "failed",
-                "task_id": sections_to_review[i].section_id,
-                "message": f"章节 {sections_to_review[i].section_id} 审核失败",
-                "error": str(result),
-            })
 
     # 全部完成后计算整体分
     scored = [(s, s.score) for s in section_reviews if isinstance(s.score, int) and s.score > 0]
     overall_score = round(sum(s for _, s in scored) / len(scored), 1) if scored else 0
     passed = overall_score >= PASS_SCORE
     sections_to_revise = [s.section_id for s, score in scored if score < SECTION_PASS_SCORE]
+    
+    # 如果整体没通过，但没有任何单章触发重写阈值，则找出得分最低的章节进行重写
+    if not passed and not sections_to_revise and scored:
+        lowest_score = min(score for _, score in scored)
+        sections_to_revise = [s.section_id for s, score in scored if score == lowest_score]
 
-    # 先打印未通过章节
-    for sid in sections_to_revise:
-        emit_trace_event("task", {
-            "phase": "review",
-            "status": "failed",
-            "task_id": sid,
-            "message": f"章节 {sid} 未通过，需重写",
-        })
 
-    # 最后打印整体评分
     logger.info("第%d轮 | 整体分: %d/10 | %s | 需重写: %s",
                 current_round, overall_score, "✅通过" if passed else "❌未通过", sections_to_revise)
 
-    emit_trace_event("phase", {
-        "phase": "review",
-        "status": "completed",
-        "message": f"整体评分 {overall_score}/10",
+    emit_trace_event("review_update", {
+        "phase": "writing",
         "round": current_round,
         "passed": passed,
         "overall_score": overall_score,
         "sections_to_revise": sections_to_revise,
+        "message": f"整体评分 {overall_score}/10",
     })
 
     return {

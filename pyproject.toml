@@ -44,6 +44,8 @@ dependencies = [
     "llama-index-storage-docstore-postgres>=0.5.0",
     "llama-index-storage-index-store-postgres>=0.5.0",
     "transformers>=4.46.0",
+    "mcp>=1.0.0",
+    "python-frontmatter>=1.1.0",
 ]
 
 
@@ -55,35 +57,9 @@ requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = [
-    "agent",
-    "report",
-    "schemas",
-    "services",
-    "shared",
-    "utils",
-    "models",
-    "monitor",
-    "llamarag",
-    "llamarag.create_node",
-    "llamarag.ingestion",
-    "llamarag.queue",
-    "llamarag.worker",
-]
+packages = { find = { where = ["src"], namespaces = true, exclude = ["mcp", "mcp.*"] } }
 [tool.setuptools.package-dir]
-"agent" = "src/agent"
-"report" = "src/report"
-"schemas" = "src/schemas"
-"services" = "src/services"
-"shared" = "src/shared"
-"utils" = "src/utils"
-"models" = "src/models"
-"monitor" = "src/monitor"
-"llamarag" = "src/llamarag"
-"llamarag.create_node" = "src/llamarag/create_node"
-"llamarag.ingestion" = "src/llamarag/ingestion"
-"llamarag.queue" = "src/llamarag/queue"
-"llamarag.worker" = "src/llamarag/worker"
+"" = "src"
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 

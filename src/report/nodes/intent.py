@@ -33,7 +33,7 @@ chat_prompt = ChatPromptTemplate.from_messages(
 async def intent_node(state: ReportState) -> dict:
     """提取用户意图节点"""
     emit_trace_event(
-        "phase",
+        "stage",
         {
             "phase": "intent",
             "status": "running",
@@ -44,26 +44,8 @@ async def intent_node(state: ReportState) -> dict:
     try:
         chain = chat_prompt | llm.with_structured_output(OutIntent)
         out_intent: OutIntent = await chain.ainvoke({"user_query": state.user_query})
-        emit_trace_event(
-            "task",
-            {
-                "phase": "intent",
-                "status": "completed",
-                "message": "意图提取完成",
-                "topic": out_intent.topic,
-            },
-        )
         print(f"✅ 提取结果{ out_intent}")
     except Exception as e:
-        emit_trace_event(
-            "task",
-            {
-                "phase": "intent",
-                "status": "failed",
-                "message": "意图提取失败",
-                "error": str(e),
-            },
-        )
         raise
     return {
         "intent": out_intent,
