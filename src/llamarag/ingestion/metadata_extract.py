@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from llamarag.local_model.uie_model import RecognizedEntity, extract_entities_by_uie
+from llm_completion.entity_extract_llm import RecognizedEntity, extract_entities_by_chat_llm_sync
 from models.EntityDictionaryModel import EntityType
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ def _pick_best_model_entity(
     *,
     min_confidence: float = _MODEL_ENTITY_MIN_CONFIDENCE,
 ) -> str | None:
+    """从模型识别的实体中选一个最优的文本，要求满足类型、置信度等条件。"""
     best_text: str | None = None
     best_score = -1.0
     for entity in entities:
@@ -45,6 +46,7 @@ def _pick_all_model_entities(
     limit: int = 8,
     min_confidence: float = _MODEL_ENTITY_MIN_CONFIDENCE,
 ) -> list[str]:
+    """提取所有满足条件的实体文本，去重、按置信度排序，返回文本列表。"""
     out: list[str] = []
     seen: set[str] = set()
     for entity in entities:
@@ -64,6 +66,7 @@ def _pick_all_model_entities(
 
 
 def _serialize_model_entities(entities: list[RecognizedEntity]) -> list[dict[str, object]]:
+    """把模型识别的实体列表序列化为字典列表，方便存储在 metadata 中。"""
     return [
         {
             "entity_type": entity.entity_type.value,
@@ -81,6 +84,7 @@ def _extract_keywords_from_model_entities(
     limit: int = 12,
     min_confidence: float = _MODEL_ENTITY_MIN_CONFIDENCE,
 ) -> list[str]:
+    """从模型识别的实体中提取关键词，去重、按置信度排序。"""
     ordered = sorted(entities, key=lambda x: x.confidence, reverse=True)
     out: list[str] = []
     seen: set[str] = set()
@@ -119,15 +123,19 @@ def extract_doc_metadata(
     knowledge_base_id: int | None = None,
     biz_code: str | None = None,
 ) -> dict[str, object]:
-    """纯模型实体抽取：实体字段仅由 UIE 模型提供。"""
-    _ = owner_user_id, knowledge_base_id, biz_code
+    """纯模型实体抽取：实体字段由 chat_llm 提供。"""
+    _ = knowledge_base_id, biz_code
 
     title = _first_heading(text) or fallback_title
     faq_questions = re.findall(r"\*\*Q\d+[:：](.+?)\*\*", text)
 
-    logger.warning("uie_input title=%s text_len=%d", title, len(text))
-    model_entities = extract_entities_by_uie(text, title=title)
-    logger.warning("uie_output_count=%d", len(model_entities))
+    logger.warning("llm_extract_input title=%s text_len=%d", title, len(text))
+    model_entities = extract_entities_by_chat_llm_sync(
+        text,
+        owner_user_id=owner_user_id,
+        title=title,
+    )
+    logger.warning("llm_extract_output_count=%d", len(model_entities))
     _log_model_entities(model_entities)
     product_name = _pick_best_model_entity(model_entities, EntityType.PRODUCT)
     brand = _pick_best_model_entity(model_entities, EntityType.BRAND)

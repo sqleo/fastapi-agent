@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.memory.langmem import LANGMEM_TOOLS
+from infra.memory import LANGMEM_TOOLS
 from agent.tools.decorators import hidden_from_client
 from agent.tools.vector_search import milvus_search
 

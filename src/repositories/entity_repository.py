@@ -40,14 +40,14 @@ async def resolve_entity_canonical(
     knowledge_base_id: int | None = None,
     session: AsyncSession,
 ) -> str | None:
-    """将 UIE 抽到的原始文本归一化为词典 canonical_name。
+    """将模型抽到的原始文本归一化为词典 canonical_name。
 
     查找顺序：
     1. entity_alias 别名表（alias_normalized == normalize(text)）
     2. entity_dictionary 主表（normalized_name == normalize(text)）
 
     每步按作用域优先级排序：KB 级 > 业务级 > 租户全局。
-    未命中返回 ``None``（调用方应退化使用 UIE 原始文本）。
+    未命中返回 ``None``（调用方应退化使用模型原始文本）。
     """
     if not text or not text.strip():
         return None
@@ -120,7 +120,7 @@ async def resolve_entities_batch(
                 knowledge_base_id=knowledge_base_id,
                 session=session,
             )
-            results[key] = canonical or raw  # 未命中则保留 UIE 原始文本
+            results[key] = canonical or raw  # 未命中则保留模型原始文本
         else:
             results[key] = None
 

@@ -6,7 +6,7 @@ import os
 
 from langchain.agents.middleware.types import wrap_model_call
 
-from .turns import take_last_turns
+from infra.memory.turns import take_last_turns
 
 MEMORY_SHORT_TERM_TURNS = int(os.getenv("MEMORY_SHORT_TERM_TURNS", "10"))
 

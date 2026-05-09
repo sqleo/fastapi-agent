@@ -36,17 +36,8 @@ def _resolve_database_url() -> str:
 
 DATABASE_URL = _resolve_database_url()
 
-_engine: AsyncEngine | None = None
-_session_factory: async_sessionmaker[AsyncSession] | None = None
-_loop_id: int | None = None
-
-
-def _running_loop_id() -> int | None:
-    try:
-        return id(asyncio.get_running_loop())
-    except RuntimeError:
-        return None
-
+import weakref
+from sqlalchemy.pool import NullPool
 
 def _build_engine() -> AsyncEngine:
     return create_async_engine(
@@ -60,28 +51,47 @@ def _build_engine() -> AsyncEngine:
         future=True,
     )
 
+_engine_map: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+def _get_engine_and_factory() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None:
+        if loop in _engine_map:
+            return _engine_map[loop]
+        
+        # 第一次请求的通常是 Uvicorn 主事件循环，给它带连接池的 Engine；
+        # 后续通过 asyncio.run 创建的临时事件循环使用 NullPool，防止连接在循环结束后被遗弃导致报错
+        is_main_loop = len(_engine_map) == 0
+        if is_main_loop:
+            engine = _build_engine()
+        else:
+            engine = create_async_engine(
+                DATABASE_URL,
+                poolclass=NullPool,
+                pool_pre_ping=True,
+                echo=False,
+                future=True,
+            )
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        _engine_map[loop] = (engine, factory)
+        return engine, factory
+    else:
+        # 非异步上下文的 fallback
+        engine = _build_engine()
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        return engine, factory
 
 def get_async_engine() -> AsyncEngine:
-    """按事件循环懒加载引擎，避免跨 loop 复用连接池导致 ``different loop``。"""
-    global _engine, _session_factory, _loop_id
-    cur = _running_loop_id()
-    if _engine is None:
-        _engine = _build_engine()
-        _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
-        _loop_id = cur
-        return _engine
-
-    if _loop_id is not None and cur is not None and _loop_id != cur:
-        _engine = _build_engine()
-        _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
-        _loop_id = cur
-    return _engine
+    """按事件循环懒加载引擎，避免跨 loop 复用连接池导致不同 loop 报错。"""
+    return _get_engine_and_factory()[0]
 
 
 def _get_session_factory() -> async_sessionmaker[AsyncSession]:
-    get_async_engine()
-    assert _session_factory is not None
-    return _session_factory
+    return _get_engine_and_factory()[1]
 
 
 def async_session() -> AsyncSession:
@@ -91,12 +101,14 @@ def async_session() -> AsyncSession:
 
 async def dispose_async_engine() -> None:
     """释放当前事件循环绑定的连接池。"""
-    global _engine, _session_factory, _loop_id
-    if _engine is not None:
-        await _engine.dispose()
-    _engine = None
-    _session_factory = None
-    _loop_id = None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if loop in _engine_map:
+        engine, factory = _engine_map[loop]
+        await engine.dispose()
+        del _engine_map[loop]
 
 
 async def get_sql_session() -> AsyncGenerator[AsyncSession, None]:

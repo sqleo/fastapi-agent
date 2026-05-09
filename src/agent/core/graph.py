@@ -8,11 +8,8 @@ from __future__ import annotations
 
 import logging
 import pathlib
-from typing import Any
-
 from langchain.agents import create_agent
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_litellm import ChatLiteLLM
 
 from agent.injection import inject_llm_from_global_settings
 from agent.memory.context_window import short_term_message_window
@@ -54,11 +51,10 @@ def _load_agent_system_prompt() -> str:
 
 _AGENT_SYSTEM_PROMPT = _load_agent_system_prompt()
 
-# 占位模型（真实 LLM 由 inject_llm_from_global_settings 中间件动态注入）
-_placeholder_model = init_chat_model(
-    "placeholder",
-    model_provider="openai",
-    base_url="https://api.openai.com/v1",
+# 占位模型（真实 LLM 由 inject_llm_from_global_settings 中间件动态注入，与 llm_completion.chat_llm 同一底层类）
+_placeholder_model = ChatLiteLLM(
+    model="openai/placeholder",
+    api_base="https://api.openai.com/v1",
     api_key="placeholder-unused",
 )
 

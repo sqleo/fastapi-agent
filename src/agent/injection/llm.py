@@ -15,7 +15,7 @@ import uuid as _uuid
 from langchain.agents.middleware.types import wrap_model_call
 from langgraph.config import get_config
 
-from utils.llm_init import create_llm
+from llm_completion.chat_llm import chat_llm
 from utils.sql_db import async_session
 
 logger = logging.getLogger("agent.injection.llm")
@@ -129,6 +129,7 @@ def _classify_error(exc: Exception) -> tuple[str, str]:
 
 
 def _parse_uuid(val: str | None) -> _uuid.UUID | None:
+    """解析 UUID，失败返回 None。"""
     if not val:
         return None
     try:
@@ -221,7 +222,7 @@ async def inject_llm_from_global_settings(request, handler):
         override = configurable.get("llm_temperature")
         temperature_override = float(override) if override is not None else None
         async with async_session() as session:
-            llm = await create_llm(
+            llm = await chat_llm(
                 session,
                 user_id,
                 temperature_override=temperature_override,

@@ -7,9 +7,10 @@ from abc import ABC, abstractmethod
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from configs.env import env_config
 from models.LlmVendorModel import LlmVendorModel
 from services.controllers.llm_global_setting_controller import get_global_setting_owned
-from shared.embedding.config import FIXED_EMBEDDING_DIMENSION, EmbeddingConfig
+from shared.embedding.config import EmbeddingConfig
 from shared.embedding.exceptions import EmbeddingConfigurationError
 
 
@@ -53,7 +54,7 @@ class DatabaseEmbeddingSettingsProvider(EmbeddingSettingsProvider):
             model=model,
             base_url=base_url.rstrip("/"),
             api_key=api_key,
-            dimensions=FIXED_EMBEDDING_DIMENSION,
+            dimensions=env_config.embedding_dimensions,
         )
 
 

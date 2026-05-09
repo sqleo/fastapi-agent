@@ -1,4 +1,4 @@
-"""LangMem 工具定义。"""
+"""LangMem 工具定义（可在任何图中复用）。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 
 from langmem import create_manage_memory_tool, create_search_memory_tool
 
-logger = logging.getLogger("agent.memory.langmem")
+logger = logging.getLogger("infra.memory.langmem_tools")
 
 LANGMEM_ENABLED = os.getenv("LANGMEM_ENABLED", "1").lower() in ("1", "true", "yes")
 
@@ -19,7 +19,7 @@ _MANAGE_INSTRUCTIONS_ZH = (
 
 
 def build_langmem_tools():
-    """构建 LangMem 提供的 manage/search 工具列表."""
+    """构建 LangMem 提供的 manage/search 工具列表。"""
     if not LANGMEM_ENABLED:
         return []
     return [

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-
 def format_semver(major: int, minor: int, patch: int) -> str:
+    """格式化为语义版本字符串，如 0.1.0。"""
     return f"{major}.{minor}.{patch}"
 
 

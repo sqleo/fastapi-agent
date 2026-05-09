@@ -15,12 +15,20 @@ from llama_index.core.vector_stores.types import (
 )
 
 from agent.tools.runtime_user import langgraph_runtime_user_id
+from shared.embedding.exceptions import EmbeddingConfigurationError
 
 logger = logging.getLogger(__name__)
 
 _TOP_K_MIN = 1
 _TOP_K_MAX = 50  # 放宽上限以支持 reranker 20-候选流程
 _TEXT_PREVIEW = 4000
+
+
+def _query_dense_embedding(owner_user_id: int, q: str) -> list[float]:
+    """读取全局嵌入配置并通过 LiteLLM 嵌入网关生成查询向量。"""
+    from llm_completion.embedding_llm import sync_embedding_for_owner
+
+    return sync_embedding_for_owner(owner_user_id).embed_query(q)
 
 
 def _clamp_top_k(top_k: int) -> int:
@@ -41,9 +49,8 @@ def search_user_knowledge_vectors_sync(
 ) -> str:
     """对 Milvus 做混合检索，仅返回属于 ``owner_user_id`` 的片段（可选限定知识库）。
 
-    延迟 import 嵌入与 Milvus，避免在仅加载 LangGraph 图时要求本机存在模型文件或拉起 SentenceTransformer。
+    延迟 import Milvus 与嵌入 HTTP，避免在无数据库上下文时拉起重型依赖。
     """
-    from llamarag.local_model.embed_model import embed_model
     from llamarag.storage.vector_store import vector_store
 
     q = (query or "").strip()
@@ -86,14 +93,9 @@ def search_user_knowledge_vectors_sync(
     meta = MetadataFilters(filters=filters)
 
     try:
-        q_emb = embed_model.get_query_embedding(q)
-    except FileNotFoundError as e:
-        logger.exception("向量检索：嵌入模型路径不存在")
-        return (
-            "检索失败：服务端未找到嵌入模型文件。"
-            "请在镜像中挂载或复制 BGE 模型目录（与 scripts/download_model.py 一致），或设置可用路径。"
-            f"（{e}）"
-        )
+        q_emb = _query_dense_embedding(owner_user_id, q)
+    except EmbeddingConfigurationError as e:
+        return f"检索失败：嵌入未配置或不可用。（{e}）"
     except Exception:
         logger.exception("向量检索：查询嵌入失败")
         return "检索失败：无法为查询生成向量，请稍后重试。"
@@ -159,7 +161,6 @@ def search_user_knowledge_vectors_raw(
     返回 ``list[{"score": float, "text": str, "metadata": dict}]``，按 Milvus 相似度降序。
     空结果时返回空列表（不返回字符串错误）。
     """
-    from llamarag.local_model.embed_model import embed_model
     from llamarag.storage.vector_store import vector_store
 
     q = (query or "").strip()
@@ -187,7 +188,7 @@ def search_user_knowledge_vectors_raw(
 
     meta = MetadataFilters(filters=filters)
     try:
-        q_emb = embed_model.get_query_embedding(q)
+        q_emb = _query_dense_embedding(owner_user_id, q)
     except Exception:
         logger.exception("raw 向量检索：查询嵌入失败")
         return []

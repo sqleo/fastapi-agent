@@ -34,7 +34,7 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # 5. 【核心优化】从 builder 阶段直接把编译好的虚拟环境拷贝过来
-# 这样你就跳过了在运行环境安装 gcc 和重新下载 torch/FlagEmbedding 的步骤
+# 这样你就跳过了在运行环境安装 gcc、重复下载大包依赖的步骤
 COPY --from=builder /app/.venv /app/.venv
 
 # 6. 设置环境变量

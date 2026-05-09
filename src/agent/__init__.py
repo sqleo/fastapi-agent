@@ -18,7 +18,7 @@ from infra.langgraph.control import (
     fork_from_checkpoint,
 )
 from infra.langgraph import get_langgraph_store
-from .memory.langmem import LANGMEM_TOOLS
+from infra.memory import LANGMEM_TOOLS
 from .injection import inject_llm_from_global_settings
 
 __all__ = [

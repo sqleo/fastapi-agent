@@ -17,9 +17,8 @@ services:
       - LLAMAINDEX_POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
       - REDIS_URI=redis://redis:6379/1
       - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
-      - LLAMARAG_PROJECT_ROOT=/app
     volumes:
-      # 宿主机路径见环境变量 BGE_MODEL_HOST_PATH（默认 ./model）；模型结构：BAAI/bge-small-zh-v1.5/
+      # 可选；嵌入已走 DB 全局设置的 OpenAI 兼容 /embeddings（变量名沿用 BGE_MODEL_HOST_PATH）
       - ${BGE_MODEL_HOST_PATH:-./model}:/app/model:ro
       - app_static:/app/static
     restart: unless-stopped
@@ -67,9 +66,9 @@ services:
       - MILVUS_URI=http://${MILVUS_HOST:-milvus}:${MILVUS_PORT:-19530}
       - LLAMAINDEX_POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
       - REDIS_URI=redis://redis:6379/1
-      - LLAMARAG_PROJECT_ROOT=/app
     command: taskiq worker llamarag.worker.taskiq_tasks:broker
     volumes:
+      # 可选挂载（同上）；不再需要容器内 LLAMARAG_PROJECT_ROOT
       - ${BGE_MODEL_HOST_PATH:-./model}:/app/model:ro
       - app_static:/app/static
     restart: unless-stopped
@@ -81,6 +80,31 @@ services:
       redis:
         condition: service_healthy
       milvus:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # =============================================
+  # LangMem reindex Worker（生产，Taskiq，队列 langmem:reindex）
+  # =============================================
+  langmem-reindex-worker:
+    image: ${FASTAPI_IMAGE:-ccr.ccs.tencentyun.com/sqliu/fastapi:latest}
+    container_name: langmem-reindex-worker
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MYSQL_URL=mysql+aiomysql://${MYSQL_USER:-root}:${MYSQL_PASSWORD:-root}@${MYSQL_HOST:-mysql}:${MYSQL_PORT:-3306}/${MYSQL_DATABASE:-app_db}
+      - POSTGRES_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-langgraph}
+      - REDIS_URI=redis://redis:6379/1
+    command: taskiq worker infra.langgraph.reindex_tasks:broker
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network

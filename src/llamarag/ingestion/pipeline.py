@@ -8,18 +8,22 @@ from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.ingestion.pipeline import DocstoreStrategy
 from llama_index.core.node_parser import SentenceSplitter
 
-from llamarag.local_model.embed_model import embed_model
+from llamarag.local_model.embed_model import build_llama_embedding_for_owner
 from llamarag.storage.postgres_llamaindex import get_llamaindex_docstore
 from llamarag.storage.vector_store import vector_store
 
 
-def ingestion_pipeline() -> IngestionPipeline:
-    """默认管线：切块 + 嵌入 + Milvus；若配置 ``LLAMAINDEX_POSTGRES_URI`` 则同时写 Postgres docstore。"""
+def ingestion_pipeline(owner_user_id: int) -> IngestionPipeline:
+    """默认管线：切块 + 嵌入 + Milvus；若配置 ``LLAMAINDEX_POSTGRES_URI`` 则同时写 Postgres docstore。
+
+    ``owner_user_id`` 用于解析数据库中的 embedding 厂商与模型（与检索一致）。
+    """
     docstore = get_llamaindex_docstore()
+    embed = build_llama_embedding_for_owner(owner_user_id)
     kwargs: dict[str, Any] = {
         "transformations": [
             SentenceSplitter(chunk_size=512, chunk_overlap=20),
-            embed_model,
+            embed,
         ],
         "vector_store": vector_store,
     }
@@ -29,6 +33,6 @@ def ingestion_pipeline() -> IngestionPipeline:
     return IngestionPipeline(**kwargs)
 
 
-def build_ingestion_pipeline() -> IngestionPipeline:
+def build_ingestion_pipeline(owner_user_id: int) -> IngestionPipeline:
     """与 ``ingestion_pipeline`` 同义，兼容旧命名."""
-    return ingestion_pipeline()
+    return ingestion_pipeline(owner_user_id)

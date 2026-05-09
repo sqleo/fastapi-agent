@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# 与 Milvus 集合维度一致；当前产品约定写死 1024。
-FIXED_EMBEDDING_DIMENSION: int = 1024
+# EmbeddingConfig 默认值；实际解析维度见 ``get_embedding_dimensions()``。
+_DEFAULT_DIM = 512
+
+
+def get_embedding_dimensions() -> int:
+    """与 Milvus dense 维数、HTTP ``dimensions`` 对齐（来自 ``MILVUS_DIM`` / ``EMBEDDING_DIMENSIONS``）。"""
+    from configs.env import env_config
+
+    return env_config.embedding_dimensions
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,4 +22,4 @@ class EmbeddingConfig:
     model: str
     base_url: str
     api_key: str
-    dimensions: int = FIXED_EMBEDDING_DIMENSION
+    dimensions: int = _DEFAULT_DIM

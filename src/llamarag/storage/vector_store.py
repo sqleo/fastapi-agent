@@ -6,9 +6,8 @@ from llama_index.vector_stores.milvus.utils import BM25BuiltInFunction
 
 from configs.env import env_config
 
-# 须与 ``llamarag.local_model.embed_model`` 所用模型一致（bge-small-zh-v1.5 为 512）。
-# 不从此处 import embed_model，避免仅 import 向量存储时拉起 SentenceTransformer（如 LangGraph 加载图）。
-_EMBED_DIM = 512
+# 须与 ``env_config.embedding_dimensions``、HTTP /embeddings 返回维数一致。
+_EMBED_DIM = env_config.embedding_dimensions
 
 hnsw_index_config = {
     "index_type": "HNSW",  # 指定使用 HNSW
@@ -36,7 +35,7 @@ vector_store = MilvusVectorStore(
     index_config=hnsw_index_config,
     search_config=hnsw_search_config,
     enable_sparse=True,
-    # 稀疏侧用 Milvus 内置 BM25（不依赖 FlagEmbedding / bge-m3）；dense 仍用 bge-small-zh-v1.5
+    # 稀疏侧用 Milvus 内置 BM25；dense 向量维与全局 HTTP 嵌入一致
     sparse_embedding_function=BM25BuiltInFunction(),
     # 可选：混合检索时的 reranker
     hybrid_ranker="RRFRanker",  # 默认是 RRFRanker（Reciprocal Rank Fusion）

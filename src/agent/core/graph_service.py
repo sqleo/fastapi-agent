@@ -26,21 +26,20 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
+from agent.tools.vector_search import search_user_knowledge_vectors_raw
 from infra.langgraph import get_graph_checkpointer, get_langgraph_store
-from agent.memory.memory_nodes import (
-    short_term_window_node,
+from infra.memory import (
     advanced_memory_retrieve_node,
     advanced_memory_write_node,
+    short_term_window_node,
 )
-from agent.tools.runtime_user import langgraph_runtime_user_id
-from llamarag.local_model.uie_model import extract_entities_by_uie
+from llm_completion.chat_llm import chat_llm
+from llm_completion.entity_extract_llm import extract_entities_by_chat_llm
+from llm_completion.rerank_llm import rerank_to_scored_tuples
 from models.EntityDictionaryModel import EntityType
 from models.FileManagementModel import FileAssetModel
-from models.KnowledgeBaseModel import KnowledgeBaseFileModel, KbFilePipelineStatus
-from agent.tools.knowledge_base_search import knowledge_base_search
-from agent.tools.vector_search import search_user_knowledge_vectors_raw
+from models.KnowledgeBaseModel import KnowledgeBaseFileModel
 from repositories.entity_repository import resolve_entities_batch
-from utils.llm_init import create_llm
 from utils.sql_db import async_session
 
 logger = logging.getLogger("agent.graph_service")
@@ -311,7 +310,24 @@ async def _build_query_plan(state: ServiceState, config: RunnableConfig) -> tupl
     recent_user_texts = _recent_user_texts(state)
     history_context = "\n".join(recent_user_texts[:-1]) if len(recent_user_texts) > 1 else ""
 
-    entities_raw = extract_entities_by_uie(normalized_query, title="query")
+    configurable = (config or {}).get("configurable") or {}
+    user_id_for_dict = _parse_config_user_id(configurable.get("user_id"))
+    biz_code: str | None = str(configurable.get("biz_code") or "").strip() or None
+    kb_id = _parse_config_knowledge_base_id(config)
+
+    entities_raw: list[Any] = []
+    if user_id_for_dict:
+        try:
+            async with async_session() as session:
+                entities_raw = await extract_entities_by_chat_llm(
+                    normalized_query,
+                    owner_user_id=user_id_for_dict,
+                    session=session,
+                    title="query",
+                )
+        except Exception:
+            logger.warning("查询实体抽取失败，退化为无实体过滤", exc_info=True)
+
     brand_raw = _extract_scalar_entity(entities_raw, EntityType.BRAND)
     product_name_raw = _extract_scalar_entity(entities_raw, EntityType.PRODUCT)
     category_raw = _extract_scalar_entity(entities_raw, EntityType.CATEGORY)
@@ -333,10 +349,6 @@ async def _build_query_plan(state: ServiceState, config: RunnableConfig) -> tupl
             category_raw = str(prev_entities["category"]).strip() or None
 
     # ── 实体归一化：走词典 canonical（KB > Biz > Global），未命中保留原文 ─────────
-    kb_id = _parse_config_knowledge_base_id(config)
-    configurable = (config or {}).get("configurable") or {}
-    biz_code: str | None = str(configurable.get("biz_code") or "").strip() or None
-    user_id_for_dict = _parse_config_user_id(configurable.get("user_id"))
     entities_canonical: dict[str, bool] = {}
 
     brand = brand_raw
@@ -364,7 +376,7 @@ async def _build_query_plan(state: ServiceState, config: RunnableConfig) -> tupl
                 "category": category != category_raw,
             }
         except Exception:
-            logger.warning("实体词典归一化失败，退化使用 UIE 原始文本", exc_info=True)
+            logger.warning("实体词典归一化失败，退化使用模型原始文本", exc_info=True)
 
     # ── FAQ 置信度：同时含 FAQ + 信息类 hints 则降低信心 ────────────────────────
     faq_hint_count = sum(1 for h in _FAQ_HINTS if h in normalized_query)
@@ -577,7 +589,7 @@ async def classify_node(state: ServiceState, config: RunnableConfig) -> dict[str
 
     user_id = _resolve_user_id(config)
     async with async_session() as session:
-        llm = await create_llm(session, user_id, temperature_override=0.0)
+        llm = await chat_llm(session, user_id, temperature_override=0.0)
     if not await _run_router(llm, router_input, config):
         return {
             "messages": [AIMessage(content=_NON_PRODUCT_REPLY)],
@@ -714,15 +726,26 @@ async def faq_match_node(state: ServiceState, config: RunnableConfig) -> dict[st
         passages = [h["text"] for h in raw_hits if h.get("text")]
         if passages:
             try:
-                from llamarag.local_model.rerank_model import rerank_sync
                 _tr0 = time.monotonic()
-                reranked = await asyncio.to_thread(rerank_sync, query, passages, top_n=3)
+                async with async_session() as session:
+                    reranked = await rerank_to_scored_tuples(
+                        session,
+                        owner_user_id,
+                        query=query,
+                        passages=passages,
+                        top_n=3,
+                    )
                 trace["t_rerank_ms"] = round((time.monotonic() - _tr0) * 1000, 1)
-                trace["rerank_used"] = True
                 if reranked:
+                    trace["rerank_used"] = True
                     rerank_top1 = reranked[0][0]
                     hit = rerank_top1 >= _FAQ_HIT_THRESHOLD
                     result_text = _format_reranked(reranked)
+                else:
+                    first_score = raw_hits[0]["score"] if raw_hits else None
+                    rerank_top1 = first_score
+                    hit = first_score is not None and first_score >= _FAQ_HIT_THRESHOLD
+                    result_text = _format_reranked([(h["score"], h["text"]) for h in raw_hits[:3]])
             except Exception:
                 logger.warning("FAQ reranker 失败，降级用 Milvus 分数", exc_info=True)
                 first_score = raw_hits[0]["score"] if raw_hits else None
@@ -798,11 +821,20 @@ async def retrieve_node(state: ServiceState, config: RunnableConfig) -> dict[str
         if not passages:
             return [], None
         try:
-            from llamarag.local_model.rerank_model import rerank_sync
             _tr0 = time.monotonic()
-            ranked = await asyncio.to_thread(rerank_sync, search_query, passages, top_n=_RERANK_TOP_N)
+            async with async_session() as session:
+                ranked = await rerank_to_scored_tuples(
+                    session,
+                    owner_user_id,
+                    query=search_query,
+                    passages=passages,
+                    top_n=_RERANK_TOP_N,
+                )
             trace["t_rerank_ms"] = round((time.monotonic() - _tr0) * 1000, 1)
-            trace["rerank_used"] = True
+            if ranked is not None:
+                trace["rerank_used"] = True
+            else:
+                ranked = [(h["score"], h["text"]) for h in raw[:_RERANK_TOP_N]]
         except Exception:
             logger.warning("Reranker 失败，降级用 Milvus 分数", exc_info=True)
             ranked = [(h["score"], h["text"]) for h in raw[:_RERANK_TOP_N]]
@@ -877,7 +909,7 @@ async def generate_node(state: ServiceState, config: RunnableConfig) -> dict[str
     user_id = _resolve_user_id(config)
 
     async with async_session() as session:
-        llm = await create_llm(session, user_id, temperature_override=0.1)
+        llm = await chat_llm(session, user_id, temperature_override=0.1)
     response = await llm.ainvoke(
         [
             SystemMessage(content=prompt),

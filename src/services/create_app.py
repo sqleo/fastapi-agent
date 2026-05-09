@@ -14,6 +14,7 @@ from monitor.pg import close_monitor_pool, init_monitor_pool
 from services.middlewares.require_login_middleware import RequireLoginMiddleware
 from utils.logging_setup import configure_logging
 from utils.response import register_exception_handlers
+from utils.schema_migrations import ensure_llm_global_setting_columns
 from utils.sql_db import check_db_connection, dispose_async_engine, get_async_engine
 
 logger = logging.getLogger("services.request")
@@ -32,6 +33,7 @@ def create_app():
         engine = get_async_engine()
         async with engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
+        await ensure_llm_global_setting_columns(engine)
         logger.info("MySQL 业务表已就绪")
 
         # 初始化 LLM 监控库（PostgreSQL，会自动建 schema + 表）

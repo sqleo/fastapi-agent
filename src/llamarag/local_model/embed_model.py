@@ -1,46 +1,63 @@
-"""LlamaIndex 全局嵌入：优先使用项目内已下载的 BGE，避免重复走 Hub。"""
+"""LlamaIndex 嵌入：与 ``llm_completion.embedding_llm`` 共用 LiteLLMM 嵌入，无单独 HTTP 封装。"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from pathlib import Path
+from typing import Any
 
-from llama_index.core import Settings
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core.base.embeddings.base import BaseEmbedding
+from llama_index.core.bridge.pydantic import Field, PrivateAttr
 
-from configs.env import env_config
+from llm_completion.embedding_llm import sync_embedding_for_owner
 
 logger = logging.getLogger(__name__)
 
-# 与 scripts/download_model.py、Docker 挂卷约定一致：项目根下 model/BAAI/bge-small-zh-v1.5/
-_RELATIVE_BGE = Path("model") / "BAAI" / "bge-small-zh-v1.5"
-_HUB_MODEL_ID = "BAAI/bge-small-zh-v1.5"
+# DashScope OpenAI 兼容嵌入等接口要求单次 input 条数 ≤10，超过则 400。
+_EMBEDDING_API_MAX_INPUTS = 10
 
 
-def _candidate_local_bge_dirs() -> list[Path]:
-    """按优先级列出本地模型目录候选（第一个存在的目录将被采用）。"""
-    cands: list[Path] = []
-    direct = (env_config.bge_local_model_path or "").strip()
-    if direct:
-        cands.append(Path(direct).resolve())
-    root = (env_config.llamarag_project_root or "").strip()
-    if root:
-        cands.append(Path(root).resolve() / _RELATIVE_BGE)
-    cands.append(Path(__file__).resolve().parents[3] / _RELATIVE_BGE)
-    return cands
+class LlamaIndexLiteEmbedding(BaseEmbedding):
+    """将 ``LiteLLMEmbeddings`` 接入 IngestionPipeline（``TransformComponent``）。"""
+
+    model_name: str = Field(description="embedding model id")
+
+    _lc: Any = PrivateAttr()
+
+    @classmethod
+    def from_lite_lc(cls, lc_embeddings: Any) -> LlamaIndexLiteEmbedding:
+        model_name = getattr(lc_embeddings, "model", None) or "embedding"
+        inst = cls(
+            model_name=str(model_name),
+            embed_batch_size=_EMBEDDING_API_MAX_INPUTS,
+        )
+        object.__setattr__(inst, "_lc", lc_embeddings)
+        return inst
+
+    def _get_query_embedding(self, query: str) -> list[float]:
+        return self._lc.embed_query(query)
+
+    async def _aget_query_embedding(self, query: str) -> list[float]:
+        return await asyncio.to_thread(self._lc.embed_query, query)
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+        return self._lc.embed_query(text)
+
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        n = _EMBEDDING_API_MAX_INPUTS
+        if len(texts) <= n:
+            return self._lc.embed_documents(texts)
+        out: list[list[float]] = []
+        for i in range(0, len(texts), n):
+            out.extend(self._lc.embed_documents(texts[i : i + n]))
+        return out
 
 
-def _resolve_embed_model_name() -> str:
-    for p in _candidate_local_bge_dirs():
-        if p.is_dir():
-            logger.info("使用本地 BGE 目录: %s", p)
-            return str(p)
-    logger.info("未找到本地 BGE 目录，候选: %s；改用 Hub id %s", _candidate_local_bge_dirs(), _HUB_MODEL_ID)
-    return _HUB_MODEL_ID
-
-
-_EMBED_MODEL_NAME = _resolve_embed_model_name()
-embed_model = Settings.embed_model = HuggingFaceEmbedding(model_name=_EMBED_MODEL_NAME)
-dim = embed_model._model.get_embedding_dimension()
-
-logger.info("嵌入模型 name=%s dim=%s", _EMBED_MODEL_NAME, dim)
+def build_llama_embedding_for_owner(owner_user_id: int) -> LlamaIndexLiteEmbedding:
+    """同步构造 LlamaIndex 嵌入组件。"""
+    lc = sync_embedding_for_owner(owner_user_id)
+    emb = LlamaIndexLiteEmbedding.from_lite_lc(lc)
+    logger.debug("LlamaIndex LiteLLM 嵌入 model=%s", emb.model_name)
+    return emb

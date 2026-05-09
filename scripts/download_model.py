@@ -1,6 +1,7 @@
-# download_model.py
-from huggingface_hub import snapshot_download
+# 可选脚本：下载 BAAI/bge-small-zh-v1.5。当前默认嵌入走 DB「LLM 全局设置」HTTP /embeddings，一般不跑本脚本。
 import os
+
+from huggingface_hub import snapshot_download
 
 # 创建 model 文件夹（如果不存在）
 model_dir = "./model/BAAI/bge-small-zh-v1.5"

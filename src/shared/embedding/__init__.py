@@ -1,22 +1,18 @@
-"""嵌入配置抽象：数据库主路径 + 降级策略子类占位."""
+"""嵌入配置抽象：维度与数据库解析（同步嵌入请用 ``llm_completion.embedding_llm``）。"""
 
-from shared.embedding.config import FIXED_EMBEDDING_DIMENSION, EmbeddingConfig
+from shared.embedding.config import EmbeddingConfig, get_embedding_dimensions
 from shared.embedding.exceptions import EmbeddingConfigurationError
-from shared.embedding.http_openai import HttpOpenAIEmbeddings
 from shared.embedding.provider import (
     DatabaseEmbeddingSettingsProvider,
     EmbeddingFallbackProvider,
     EmbeddingSettingsProvider,
 )
-from shared.embedding.sync_resolve import sync_resolve_embedding_config
 
 __all__ = [
-    "FIXED_EMBEDDING_DIMENSION",
+    "get_embedding_dimensions",
     "DatabaseEmbeddingSettingsProvider",
     "EmbeddingConfig",
     "EmbeddingConfigurationError",
     "EmbeddingFallbackProvider",
     "EmbeddingSettingsProvider",
-    "HttpOpenAIEmbeddings",
-    "sync_resolve_embedding_config",
 ]

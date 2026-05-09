@@ -86,7 +86,7 @@ def _build_entity_candidates(extracted: dict[str, object]) -> list[EntityCandida
             confidence = None
             if isinstance(confidence_raw, (int, float)):
                 confidence = float(confidence_raw)
-            source = str(item.get("source") or "model.uie-nano")
+            source = str(item.get("source") or "model.chat_llm")
             out.append((entity_type, entity_text, confidence, source))
 
     dedup: dict[tuple[EntityType, str], EntityCandidateSeed] = {}

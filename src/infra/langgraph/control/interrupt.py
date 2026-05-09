@@ -99,9 +99,9 @@ def extract_interrupt_payload_from_state(state_snapshot: Any) -> dict[str, Any] 
 
 
 @wrap_model_call
-def token_level_pause_middleware(request, handler):
+async def token_level_pause_middleware(request, handler):
     """兼容占位中间件：仅保留节点 interrupt 模式，不做 token 级暂停。"""
-    return handler(request)
+    return await handler(request)
 
 
 # 供外部 API 使用的控制函数

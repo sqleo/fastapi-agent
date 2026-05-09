@@ -105,16 +105,6 @@ def _agent_run_config(
     return {"configurable": conf}
 
 
-def _agent_stream_modes() -> list[str]:
-    """返回默认的流模式。"""
-    return ["messages", "custom"]
-
-
-def _agent_stream_subgraphs() -> bool:
-    """是否流式输出子图内容。"""
-    return True
-
-
 class ChatResponse(BaseModel):
     """Chat response body."""
 
@@ -124,6 +114,16 @@ class ChatResponse(BaseModel):
 
 def _sse_json(obj: dict[str, Any]) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+def _agent_stream_modes() -> list[str]:
+    """SSE ``start`` 里告知前端的流模式说明（与进程内 ``astream``/``astream_events`` 选项对应）。"""
+    return ["messages", "custom"]
+
+
+def _agent_stream_subgraphs() -> bool:
+    """是否与 SDK 行为对齐输出子图流（仅元数据；具体是否流子图由调用方 API 决定）。"""
+    return True
 
 
 async def _resolve_enabled_tools_for_chat(

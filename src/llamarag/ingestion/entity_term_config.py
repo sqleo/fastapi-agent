@@ -14,7 +14,6 @@ from utils.sql_db import async_session
 
 class EntityTermItem(TypedDict):
     """实体词项：一个正式实体及其可匹配词。"""
-
     canonical_name: str
     terms: list[str]
 
@@ -34,6 +33,7 @@ async def _load_entity_terms_async(
     knowledge_base_id: int | None,
     biz_code: str | None,
 ) -> list[EntityTermItem]:
+    """按作用域读取正式实体及别名，供同步入库逻辑使用。"""
     scope = [
         EntityDictionaryModel.owner_user_id == owner_user_id,
         EntityDictionaryModel.entity_type == entity_type,
