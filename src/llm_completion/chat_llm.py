@@ -45,6 +45,22 @@ async def chat_llm(
         temp = temperature
     mxt = int(extra["max_tokens"]) if extra.get("max_tokens") is not None else max_tokens
 
+    vendor_code = (vendor.code or "").strip().lower()
+    model_lower = model.lower()
+    is_reasoner = model_lower in {"deepseek-reasoner", "deepseek-r1"} or (vendor_code == "deepseek" and "reason" in model_lower)
+
+    if is_reasoner:
+        from langchain_deepseek import ChatDeepSeek
+        logger.info("chat_llm: using ChatDeepSeek for reasoning model=%s", model)
+        return ChatDeepSeek(
+            model=model,
+            api_key=api_key if api_key else None,
+            api_base=base_url,
+            max_tokens=mxt,
+            temperature=temp,
+            streaming=True
+        )
+
     from langchain_litellm import ChatLiteLLM
 
     # litellm 要求模型名带 provider 前缀（如 openai/deepseek-chat）；
