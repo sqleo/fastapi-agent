@@ -23,6 +23,7 @@ from schemas.report_schema import (
     ReportHistoryListResponse,
 )
 from services.controllers.report_history_controller import (
+    delete_report_history_owned,
     get_report_history_owned,
     infer_report_status,
     list_report_histories_owned,
@@ -599,3 +600,22 @@ async def get_report_history(
         ),
         message="查询成功",
     )
+
+
+@router.delete(
+    "/history/{thread_id}",
+    response_model=SuccessResponse,
+    summary="删除研报历史",
+)
+async def delete_report_history(
+    thread_id: str,
+    current_user: CurrentUserDeps,
+    session: AsyncSqlSessionDeps,
+) -> SuccessResponse:
+    """删除当前用户的指定研报历史记录。"""
+    await delete_report_history_owned(
+        session,
+        owner_user_id=current_user.id,
+        thread_id=thread_id,
+    )
+    return ok(message="删除成功")

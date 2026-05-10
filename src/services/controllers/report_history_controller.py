@@ -277,3 +277,17 @@ async def upsert_report_history_owned(
     await session.commit()
     await session.refresh(row)
     return row
+
+
+async def delete_report_history_owned(
+    session: AsyncSession,
+    *,
+    owner_user_id: int,
+    thread_id: str,
+) -> None:
+    """删除指定用户的研报历史记录。不存在则抛 404。"""
+    row = await _get_report_history_by_thread_id(session, thread_id=thread_id)
+    if row is None or row.owner_user_id != owner_user_id:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="研报历史不存在")
+    await session.delete(row)
+    await session.commit()

@@ -42,7 +42,7 @@ async def intent_node(state: ReportState) -> dict:
     )
     llm = await create_llm("llm")
     try:
-        chain = chat_prompt | llm.with_structured_output(OutIntent)
+        chain = chat_prompt | llm.with_structured_output(OutIntent, method="json_mode")
         out_intent: OutIntent = await chain.ainvoke({"user_query": state.user_query})
         print(f"✅ 提取结果{ out_intent}")
     except Exception as e:

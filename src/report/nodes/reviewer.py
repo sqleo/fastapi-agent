@@ -26,7 +26,14 @@ _section_prompt = ChatPromptTemplate.from_messages([
     ("system", (
         "你是报告质量审核专家，对单个章节进行评分。\n"
         "评分维度（各2分共10分）：内容完整性、数据准确性、逻辑结构、语言质量、洞察深度。\n"
-        "问题和建议必须具体，不得使用'加强分析'等空话。"
+        "问题和建议必须具体，不得使用'加强分析'等空话。\n"
+        "请严格以 JSON 格式输出，不要包含任何额外文字或 markdown 代码块。\n"
+        "期望的 JSON 格式示例：\n"
+        "{\n"
+        "  \"score\": 8,\n"
+        "  \"issues\": [\"问题描述1\", \"问题描述2\"],\n"
+        "  \"suggestions\": [\"改进建议1\", \"改进建议2\"]\n"
+        "}"
     )),
     ("human", (
         "报告主题：{topic}\n"
@@ -45,7 +52,7 @@ async def _review_section(
     topic: str,
     llm,
 ) -> SectionReview:
-    chain = _section_prompt | llm.with_structured_output(SectionScoreOutput)
+    chain = _section_prompt | llm.with_structured_output(SectionScoreOutput, method="json_mode")
     result: SectionScoreOutput = await chain.ainvoke({
         "topic": topic,
         "objective": outline_section.objective if outline_section else "-",

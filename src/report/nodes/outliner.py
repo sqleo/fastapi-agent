@@ -32,7 +32,8 @@ chat_prompt = ChatPromptTemplate.from_messages(
             "你是一个专业的报告大纲规划专家。\n"
             "请根据用户意图和调研摘要生成 {depth} 的报告大纲。\n"
             "每个章节包含：section_id, title, objective, key_points(2-3个), evidence_keys, target_words。\n"
-            "大纲章节应覆盖调研摘要中的核心主题，保持简洁， 返回示例格式，不要展开论述。\n\n"
+            "大纲章节应覆盖调研摘要中的核心主题，保持简洁，不要展开论述。\n"
+            "请严格以 JSON 格式输出，返回如下示例格式：\n\n"
             f"{FEW_SHOT_EXAMPLE}"
         )),
         ("human", (
@@ -83,7 +84,7 @@ async def outliner_node(state: ReportState) -> dict:
     )
     try:
         llm = await create_llm("llm")
-        chains = RunnableLambda(format_for_outline) | chat_prompt | llm.with_structured_output(OutlineResult)
+        chains = RunnableLambda(format_for_outline) | chat_prompt | llm.with_structured_output(OutlineResult, method="json_mode")
         results: OutlineResult = await chains.ainvoke(state)
         print(f"✅ 生成报告大纲{ results}")
 
